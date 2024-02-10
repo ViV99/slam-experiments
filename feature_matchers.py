@@ -22,6 +22,9 @@ class FeatureMatcher(ABC):
         query_keypoints: Sequence[KeyPoint],
         matches: Sequence[DMatch]
     ) -> None:
+        """
+        Source img is on the right and Query img is on the left
+        """
         matches_img = drawMatches(query_img, query_keypoints, source_img, source_keypoints, matches, None)
         imshow("Matches", matches_img)
 
