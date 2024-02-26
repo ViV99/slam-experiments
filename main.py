@@ -1,6 +1,8 @@
 from typing import Sequence, Optional
 
 import cv2
+import g2o
+import jaxlie
 import numpy as np
 from cv2 import NORM_HAMMING, KeyPoint, DMatch, findEssentialMat, findHomography, recoverPose, triangulatePoints
 from jaxlie import SO3, SE3
@@ -88,38 +90,55 @@ def main():
     camera_matrix = np.array([[520.9, 0, 325.1],
                               [0, 521., 249.7],
                               [0, 0, 1]])
-    orb_extractor = OrbFeatureExtractor(n_features=500)
-    img1 = cv2.imread("1.png", flags=cv2.IMREAD_COLOR)
-    img2 = cv2.imread("2.png", flags=cv2.IMREAD_COLOR)
-    # img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
-    # img2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
 
-    kp1, des1 = orb_extractor.get_features(img1)
-    kp2, des2 = orb_extractor.get_features(img2)
+    solver = g2o.OptimizationAlgorithmLevenberg(g2o.BlockSolverSE3(g2o.LinearSolverEigenSE3()))
+    optimizer = g2o.SparseOptimizer()
+    optimizer.set_algorithm(solver)
+    optimizer.set_verbose(True)
 
-    bf_matcher = BruteForceFeatureMatcher(norm_type=NORM_HAMMING)
-    matches = bf_matcher.match_features(des1, des2, 25)
+    with open("sphere.g2o", "r") as f:
+        vertex_cnt, edge_cnt = 0, 0
+        for line in f.readlines():
+            arr = line.split()
 
-    R, t = pose_estimation_2d2d(kp1, kp2, matches, camera_matrix)
+            if arr[0] == "VERTEX_SE3:QUAT":
+                idx = int(arr[1])
+                se3 = SE3(np.array(arr[2:], dtype=np.float32))
 
-    points = triangulation(kp1, kp2, matches, R, t, camera_matrix)
+                v = g2o.VertexSE3()
+                v.set_id(idx)
+                v.set_estimate(g2o.Isometry3d(se3.as_matrix()))
 
-    img1_plot = img1.copy()
-    img2_plot = img2.copy()
-    for i in range(len(matches)):
-        depth2 = points[i, 2]
-        center2 = np.array(kp2[matches[i].queryIdx].pt, dtype=int)
-        cv2.circle(img2_plot, center2, 2, get_color(depth2), 2)
+                optimizer.add_vertex(v)
+                if idx == 0:
+                    v.set_fixed(True)
+                vertex_cnt += 1
 
-        pt1_trans = R @ points[i].T + t
-        depth1 = pt1_trans[2, 0]
-        center1 = np.array(kp1[matches[i].trainIdx].pt, dtype=int)
-        cv2.circle(img1_plot, center1, 2, get_color(depth1), 2)
+            elif arr[0] == "EDGE_SE3:QUAT":
+                idx1, idx2 = int(arr[1]), int(arr[2])
+                se3 = SE3(np.array(arr[3:10], dtype=np.float32))
+                info = np.zeros((6, 6))
+                i_u, j_u = np.triu_indices(6)
+                i_l, j_l = np.tril_indices(6, k=-1)
+                info[i_u, j_u] = arr[10:]
+                info[i_l, j_l] = info[j_l, i_l]
 
-    cv2.imshow("Img 2", img2_plot)
-    cv2.imshow("Img 1", img1_plot)
-    # bf_matcher.draw_matches(img1, kp1, img2, kp2, matches)
-    cv2.waitKey()
+                e = g2o.EdgeSE3()
+                e.set_id(edge_cnt)
+                e.set_vertex(0, optimizer.vertex(idx1))
+                e.set_vertex(1, optimizer.vertex(idx2))
+                e.set_measurement(g2o.Isometry3d(se3.as_matrix()))
+                e.set_information(info)
+
+                optimizer.add_edge(e)
+                edge_cnt += 1
+
+    print(f"Total: {vertex_cnt} vertices | {edge_cnt} edges")
+    optimizer.initialize_optimization()
+    optimizer.optimize(30)
+
+    optimizer.save("result.g2o")
+
 
 
 if __name__ == "__main__":
