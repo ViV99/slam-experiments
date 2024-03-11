@@ -10,6 +10,8 @@ from jaxlie import SO3, SE3
 from feature_exractors import OrbFeatureExtractor
 from feature_matchers import BruteForceFeatureMatcher
 
+from multiprocessing import Process, Queue
+
 
 def pose_estimation_2d2d(
     source_keypoints: Sequence[KeyPoint],
@@ -83,6 +85,22 @@ def get_color(depth: float) -> tuple[float, float, float]:
     if depth < low_th:
         depth = low_th
     return 255 * depth / th_range, 0, 255 * (1 - depth / th_range)
+
+
+class Frontend:
+    def __init__(self):
+        pass
+
+
+class Backend:
+    def __init__(self):
+        pass
+
+
+class SLAM:
+    def __init__(self):
+        pass
+
 
 
 def main():
