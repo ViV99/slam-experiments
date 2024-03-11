@@ -1,8 +1,7 @@
+from __future__ import annotations
 from typing import Sequence, Optional
 
-import cv2
-import g2o
-import jaxlie
+
 import numpy as np
 from cv2 import NORM_HAMMING, KeyPoint, DMatch, findEssentialMat, findHomography, recoverPose, triangulatePoints
 from jaxlie import SO3, SE3
@@ -10,7 +9,7 @@ from jaxlie import SO3, SE3
 from feature_exractors import OrbFeatureExtractor
 from feature_matchers import BruteForceFeatureMatcher
 
-from multiprocessing import Process, Queue
+from multiprocessing import Process, Queue, Lock
 
 
 def pose_estimation_2d2d(
@@ -94,6 +93,91 @@ class Frontend:
 
 class Backend:
     def __init__(self):
+        pass
+
+
+class MapPoint:
+    def __init__(self):
+        pass
+
+class Feature:
+    __slots__ = (
+        "frame", "position", "map_point", "is_outlier"
+    )
+
+    frame: Frame
+    position: KeyPoint
+    map_point: MapPoint
+    is_outlier: bool
+
+    def __init__(self, frame: Frame, kp: KeyPoint):
+        self.frame = frame
+        self.position = kp
+        self.is_outlier = False
+
+
+
+
+class Frame:
+    __slots__ = (
+        "id", "keyframe_id", "is_keyframe", "time_stamp", "pose", "pose_mutex", "img", "features"
+    )
+
+    id: np.uint64
+    keyframe_id: np.uint64
+    is_keyframe: bool
+    time_stamp: np.float64
+    pose: SE3
+    pose_mutex: Lock
+    img: np.ndarray
+    features: list[Feature]
+
+    def __init__(self):
+        pass
+
+
+
+class Map:
+    __slots__ = (
+        "_landmarks", "_keyframes", "_active_landmarks", "_active_keyframes", "_data_mutex", "_current_frame"
+    )
+
+    _landmarks: dict[np.uint64, MapPoint]
+    _keyframes: dict[np.uint64, Frame]
+    _active_landmarks: dict[np.uint64, MapPoint]
+    _active_keyframes: dict[np.uint64, Frame]
+    _data_mutex: Lock
+    _current_frame: Frame
+
+    def __init__(self):
+        self._data_mutex = Lock()
+
+    def insert_keyframe(self, frame: Frame):
+        pass
+
+    def insert_map_point(self, map_point: MapPoint):
+        pass
+
+    def get_all_keyframes(self) -> dict[np.uint64, Frame]:
+        self._data_mutex.acquire()
+        return self._keyframes
+
+    def get_all_map_points(self) -> dict[np.uint64, MapPoint]:
+        self._data_mutex.acquire()
+        return self._landmarks
+
+    def get_active_keyframes(self) -> dict[np.uint64, Frame]:
+        self._data_mutex.acquire()
+        return self._active_keyframes
+
+    def get_active_map_points(self) -> dict[np.uint64, MapPoint]:
+        self._data_mutex.acquire()
+        return self._active_landmarks
+
+    def clean_map(self):
+        pass
+
+    def _remove_old_keyframe(self):
         pass
 
 
