@@ -13,6 +13,7 @@ jupyter = "^1.0.0"
 ipykernel = "^6.29.0"
 opencv-python = "^4.9.0.80"
 plotly = "^5.19.0"
+sophuspy = "^1.2.0"
 
 
 [build-system]

@@ -2319,6 +2319,84 @@ files = [
 ]
 
 [[package]]
+name = "sophuspy"
+version = "1.2.0"
+description = "A python binding using pybind11 for Sophus, which is a C++ Lie library.(SO3 && SE3)"
+optional = false
+python-versions = "*"
+files = [
+    {file = "sophuspy-1.2.0-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:dc440cd496a71e32deffc14d2a503062da0f8e2e6974a2f39e0c4ab9bce87377"},
+    {file = "sophuspy-1.2.0-cp310-cp310-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:d51329df5ab1481dad7bc45908ab97e810a6154d2f96accaacc5bed5cc691f36"},
+    {file = "sophuspy-1.2.0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:c0d4d1d19488e058e4f846e630f8ab7546fbc8836c901aadd3767cbe9b88ae5f"},
+    {file = "sophuspy-1.2.0-cp310-cp310-musllinux_1_1_i686.whl", hash = "sha256:a5fffb988e90846d113b26e5cedd05ae1f84b22ef47d2a87d8c78b4f2610e8e7"},
+    {file = "sophuspy-1.2.0-cp310-cp310-musllinux_1_1_x86_64.whl", hash = "sha256:3dd746828f985e47a63989bfe5b04114e21bb02f5d5d1441dd9efc06f993f761"},
+    {file = "sophuspy-1.2.0-cp310-cp310-win32.whl", hash = "sha256:4c8b2c9c662674c8f2e4c3125f8d54dffe028c8961f393e01da2578a9819e5a1"},
+    {file = "sophuspy-1.2.0-cp310-cp310-win_amd64.whl", hash = "sha256:6d0281dc9d9789b3f54ff9725b4cbe935eecc92cdb4ea224d7bb4649b83cd0ba"},
+    {file = "sophuspy-1.2.0-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:2ab2fc7cd31e4f12c3373c1d2515f5e973087029d3200d46abb8ae088ba5d46c"},
+    {file = "sophuspy-1.2.0-cp311-cp311-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:3f293dec1d503d29f6c6372a69578b87dc3728bb73eb5126d5e866af1f4c176b"},
+    {file = "sophuspy-1.2.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:44902a365fa288d7ae1f0cab7e3d0891969f94fd2fd06c2c7a9d7bcd58ee6e4b"},
+    {file = "sophuspy-1.2.0-cp311-cp311-musllinux_1_1_i686.whl", hash = "sha256:12831b4117f9e79bc60d1d3e1855cabee7225783a6c8d24adb7acb681f2a9357"},
+    {file = "sophuspy-1.2.0-cp311-cp311-musllinux_1_1_x86_64.whl", hash = "sha256:70760473fa6e8ce49b948c36997048903fba74567704c5311e5fb89fd4c73eac"},
+    {file = "sophuspy-1.2.0-cp311-cp311-win32.whl", hash = "sha256:6374177bc16478340ae85ca41df5baa85e53d94695b8596adae37f222023d5ef"},
+    {file = "sophuspy-1.2.0-cp311-cp311-win_amd64.whl", hash = "sha256:3890fb793f105ef39af06fac9f4f80c6d37eb17a77f529bee3317edf9daf323a"},
+    {file = "sophuspy-1.2.0-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:7ba03043b327549ba7149193381ed2847b43ed6271e147c011b153dfea6a6036"},
+    {file = "sophuspy-1.2.0-cp312-cp312-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:685e9ef04aff5630022305e4bb8101a02bf18fd06b42a4d95dc9c27bca6d9956"},
+    {file = "sophuspy-1.2.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:cd7e1e04e3baab4cd51672fdb26c794292c681d7ab8d365ced111108e75dfc47"},
+    {file = "sophuspy-1.2.0-cp312-cp312-musllinux_1_1_i686.whl", hash = "sha256:409d691ec871504a932f347f2c52d7ee82112d4b6c7428b447be0f3cb293d403"},
+    {file = "sophuspy-1.2.0-cp312-cp312-musllinux_1_1_x86_64.whl", hash = "sha256:856065c81b71f191c8fc0d99cbdc378535896719c5a9c32cadd56d9989d9fe87"},
+    {file = "sophuspy-1.2.0-cp312-cp312-win32.whl", hash = "sha256:4f1b13f0487da32bafba5eae2d3b5314f53a8cf5fd27de0fdb0688a720cc3b47"},
+    {file = "sophuspy-1.2.0-cp312-cp312-win_amd64.whl", hash = "sha256:47b7cf8c0f8686231b5819794114e97979666bc732a3eca19c4774c42c75075b"},
+    {file = "sophuspy-1.2.0-cp36-cp36m-macosx_10_9_x86_64.whl", hash = "sha256:11893bbd0360a99026aad56bdee263648088dccd57ea5951ce68c05fd09b8c07"},
+    {file = "sophuspy-1.2.0-cp36-cp36m-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:e0e6c258a8038c6e2c769f2c12b37a7c2010e5d34078a11ee6b9bdc2847a9f75"},
+    {file = "sophuspy-1.2.0-cp36-cp36m-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:194578fc5bbb946389c6231e6d47cc2e66bd6fb5d45a02187cf87097b0330cd2"},
+    {file = "sophuspy-1.2.0-cp36-cp36m-musllinux_1_1_i686.whl", hash = "sha256:adc7c8f8a65502300d0c11274fdfef4227a898e213bc2d17069b985033349ca1"},
+    {file = "sophuspy-1.2.0-cp36-cp36m-musllinux_1_1_x86_64.whl", hash = "sha256:ff1b323aec1b6e27992928deca3b94cb5cb2e77867e348e29b7d9b8287dc3cec"},
+    {file = "sophuspy-1.2.0-cp36-cp36m-win32.whl", hash = "sha256:7c636aac8244528abd1e38b1a1d3a41bfe800d0a1290381202b90faa6e48dc74"},
+    {file = "sophuspy-1.2.0-cp36-cp36m-win_amd64.whl", hash = "sha256:c59c44c90152db313c6cd2aeff1ec24a51802abb2d2e7bb30718120e294a32e6"},
+    {file = "sophuspy-1.2.0-cp37-cp37m-macosx_10_9_x86_64.whl", hash = "sha256:789ed4ac69798bacb49e4ffd02ab9e52952568d38b35585757096868e0faa26b"},
+    {file = "sophuspy-1.2.0-cp37-cp37m-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:ddc18f8124b59720f7f93f59f2bc7f14ba6893d9c20ad15a1b1e8088a497080b"},
+    {file = "sophuspy-1.2.0-cp37-cp37m-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:abe4db39b675349fccd5dba6117bca07b04797d6039b8112c60e7a29c82affb9"},
+    {file = "sophuspy-1.2.0-cp37-cp37m-musllinux_1_1_i686.whl", hash = "sha256:82fc60518ba50af5e313d4f9b236d375792373fa6d0e74a55e741f4ff7515f3d"},
+    {file = "sophuspy-1.2.0-cp37-cp37m-musllinux_1_1_x86_64.whl", hash = "sha256:33e0492222179b7e48614965d0a19ad0af09c3d3395ad164fdb04992ddec5c0b"},
+    {file = "sophuspy-1.2.0-cp37-cp37m-win32.whl", hash = "sha256:b1844e40e5ec464cd36dc9dbe2189ed2e96e3353b43a3b61f796c6076001f962"},
+    {file = "sophuspy-1.2.0-cp37-cp37m-win_amd64.whl", hash = "sha256:e748fbd48abab24c68d02262123ffb0e8c40e5635fee146795a34732809818ca"},
+    {file = "sophuspy-1.2.0-cp38-cp38-macosx_10_9_x86_64.whl", hash = "sha256:40e3e0c35f0e9105348d4a36cbc73312ba02ab6b6b03ae8bae8567fd3e2da987"},
+    {file = "sophuspy-1.2.0-cp38-cp38-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:333d5b4bff430687f3ee50db02502d4317acad6d3eb895cc43cb6082b01015a4"},
+    {file = "sophuspy-1.2.0-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:155432266444e35a8764192dceb834cc2d8f074a5d220d589a6289dd0deb2fae"},
+    {file = "sophuspy-1.2.0-cp38-cp38-musllinux_1_1_i686.whl", hash = "sha256:afad58d5fc9f79850b96cd823e6e2246791d6e05060be31669410d1feeeb555b"},
+    {file = "sophuspy-1.2.0-cp38-cp38-musllinux_1_1_x86_64.whl", hash = "sha256:7e3217746bac13d70fa1b24e4a98cbf46696751f66b5c120f8d53f1c167a32da"},
+    {file = "sophuspy-1.2.0-cp38-cp38-win32.whl", hash = "sha256:27d9629e98b4c1c50fa136ee76f70ff520761b82ca74d3fb600fc6f6bd8e9df8"},
+    {file = "sophuspy-1.2.0-cp38-cp38-win_amd64.whl", hash = "sha256:53ec3194a76468865e76efaa3fcec781f1230e48a04734b17f8aeb323f592e6e"},
+    {file = "sophuspy-1.2.0-cp39-cp39-macosx_10_9_x86_64.whl", hash = "sha256:d65d9b490795698e6b27a10ac5c2f66ade6f4cfb05a78a8da619b3a7a088cf40"},
+    {file = "sophuspy-1.2.0-cp39-cp39-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:9b6b7e2ea28dbaeefb7810e07a81bc23292592117d64b6ab69eebc9d28c420dd"},
+    {file = "sophuspy-1.2.0-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:678f11f8327e491028766d40a1aaa4d06ed2f99bcc8f2f44888e288c0cbef4f3"},
+    {file = "sophuspy-1.2.0-cp39-cp39-musllinux_1_1_i686.whl", hash = "sha256:38d0b3083df44f57deb3e248fdb6c4632aca53476c11bf441232e215ab90b959"},
+    {file = "sophuspy-1.2.0-cp39-cp39-musllinux_1_1_x86_64.whl", hash = "sha256:0727409200536b287aa99d21c5179c40955b4c893a6d39ccadd13130fa484955"},
+    {file = "sophuspy-1.2.0-cp39-cp39-win32.whl", hash = "sha256:33795e81160fe5c4860713be8a81752822cfa66bd7d9ec992acb188a9b3fa92e"},
+    {file = "sophuspy-1.2.0-cp39-cp39-win_amd64.whl", hash = "sha256:6c69e218728519aab4ce2ca77d8714a992dcbab711e68dfd9e567f26ea8ea871"},
+    {file = "sophuspy-1.2.0-pp310-pypy310_pp73-macosx_10_9_x86_64.whl", hash = "sha256:3c31395be48e288b624bf6f70d2cf534a856b406319df324977dbb89516770e7"},
+    {file = "sophuspy-1.2.0-pp310-pypy310_pp73-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:8748bde03a3493fd3fd29d3a98260abf35cf3e29ebd812e076df2f0877548019"},
+    {file = "sophuspy-1.2.0-pp310-pypy310_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:917b4c52e7dcc8c4756c7f7ffb46936825b2bc5396e88adad255229b95076a65"},
+    {file = "sophuspy-1.2.0-pp310-pypy310_pp73-win_amd64.whl", hash = "sha256:56730268592cbb1652e0d99fdb2347a997a43c8b8f918c3d95e2fe4e28443366"},
+    {file = "sophuspy-1.2.0-pp37-pypy37_pp73-macosx_10_9_x86_64.whl", hash = "sha256:91d5426d3cc36acdc024740f1f3a7db8aaf3205e02b2505c1e67264bbd1025fd"},
+    {file = "sophuspy-1.2.0-pp37-pypy37_pp73-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:fe966fe6fdc2f486b7d0432f3404bbfdecfed6bd0094c5b67d1efc3d2c657c4e"},
+    {file = "sophuspy-1.2.0-pp37-pypy37_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:82d3add03680f348e57783129b78b36b6c1337c4e6921f7ed0213f8b1ba596ff"},
+    {file = "sophuspy-1.2.0-pp37-pypy37_pp73-win_amd64.whl", hash = "sha256:61caa9528897793590af0f3615225b88688942c0e06cbac5ce84e734bc22a701"},
+    {file = "sophuspy-1.2.0-pp38-pypy38_pp73-macosx_10_9_x86_64.whl", hash = "sha256:25a2e142d7db06b42f58f8b110f596d516f3eff0e3cef5ff0181681dbf88f202"},
+    {file = "sophuspy-1.2.0-pp38-pypy38_pp73-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:ecaa5c25f1de06513509a1ca18ede29346c27e244ed503b5475a18f91e5ca29e"},
+    {file = "sophuspy-1.2.0-pp38-pypy38_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f20c68254db8273d6700346a90a4ffc393cd5d5f194b6a31e27a9eb2e2755225"},
+    {file = "sophuspy-1.2.0-pp38-pypy38_pp73-win_amd64.whl", hash = "sha256:0b43dee8f9fcb87bac55f435923661a465a20f99a166ac71040e53fdc1420753"},
+    {file = "sophuspy-1.2.0-pp39-pypy39_pp73-macosx_10_9_x86_64.whl", hash = "sha256:969343af25803f04b24bdef394fab85fa108a7f5eb1472800bf809042d30c22b"},
+    {file = "sophuspy-1.2.0-pp39-pypy39_pp73-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:3166b4d7225b0c6edc16effcd6194bc3cd38b9b68995adabd3420a2cc8678a8f"},
+    {file = "sophuspy-1.2.0-pp39-pypy39_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:85a74f9b8220bfed907f7cd074a3ae95716cb4811e002da04fe813ba08c2eb0a"},
+    {file = "sophuspy-1.2.0-pp39-pypy39_pp73-win_amd64.whl", hash = "sha256:ab371641d8657f3572e05984762ce01b774492d43b5bae2095579daf8fce0380"},
+    {file = "sophuspy-1.2.0.tar.gz", hash = "sha256:a88d106589fa3d89777226f1df4f419a7aaafa441fc2070092726aa4573eed9f"},
+]
+
+[package.dependencies]
+numpy = "*"
+
+[[package]]
 name = "soupsieve"
 version = "2.5"
 description = "A modern CSS selector implementation for Beautiful Soup."
@@ -2590,4 +2668,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "6d5bdf8e57acbc0e3eb37b0ccdd632f2a5bbb38a5416cbfd5d9166a78e67ed46"
+content-hash = "73833256db271fddf6ba91b8dd45ea076ad9d867a01cb4de8659a2f8ec89b31e"
