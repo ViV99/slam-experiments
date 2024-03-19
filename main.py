@@ -1,10 +1,12 @@
 from __future__ import annotations
+
+import logging as logger
 from typing import Sequence, Optional
 
 import cv2
 import numpy as np
 from cv2 import NORM_HAMMING, KeyPoint, DMatch, findEssentialMat, findHomography, recoverPose, triangulatePoints
-from sophuspy import SO3, SE3
+from jaxlie import SO3, SE3
 
 from feature_exractors import OrbFeatureExtractor
 from feature_matchers import BruteForceFeatureMatcher
@@ -96,11 +98,6 @@ class Backend:
         pass
 
 
-class MapPoint:
-    def __init__(self):
-        pass
-
-
 class Feature:
     __slots__ = (
         "frame", "position", "map_point", "is_outlier"
@@ -108,13 +105,68 @@ class Feature:
 
     frame: Frame
     position: KeyPoint
-    map_point: MapPoint
+    map_point: Optional[MapPoint]
     is_outlier: bool
 
     def __init__(self, frame: Frame, kp: KeyPoint):
         self.frame = frame
         self.position = kp
         self.is_outlier = False
+
+
+class MapPoint:
+    _factory_id: np.uint64 = 0
+
+    __slots__ = (
+        "id", "pos", "is_outlier", "observed_times", "pos_mutex", "obs_mutex", "observations"
+    )
+
+    id: np.uint64
+    pos: np.ndarray
+    is_outlier: bool
+    observed_times: int
+    pos_mutex: Lock
+    obs_mutex: Lock
+    observations: set[Feature]
+
+    def __init__(self, id: np.uint64 = 0, position: np.ndarray = np.zeros((3,))):
+        self.id = id
+        self.pos = position
+        self.is_outlier = False
+        self.observed_times = 0
+        self.pos_mutex = Lock()
+        self.obs_mutex = Lock()
+        self.observations = set()
+
+    def get_pos(self) -> np.ndarray:
+        with self.pos_mutex:
+            return self.pos.copy()
+
+    def set_pos(self, pos: np.ndarray):
+        with self.pos_mutex:
+            self.pos = pos
+
+    def add_observation(self, feature: Feature):
+        with self.obs_mutex:
+            self.observations.add(feature)
+            self.observed_times += 1
+
+    def remove_observation(self, feature: Feature):
+        with self.obs_mutex:
+            if feature in self.observations:
+                self.observations.remove(feature)
+                feature.map_point = None
+                self.observed_times -= 1
+
+    def get_observations(self):
+        with self.obs_mutex:
+            return self.observations
+
+    @staticmethod
+    def create_map_point() -> MapPoint:
+        map_point = MapPoint(id=MapPoint._factory_id)
+        MapPoint._factory_id += 1
+        return map_point
 
 
 class Frame:
@@ -126,7 +178,7 @@ class Frame:
     )
 
     id: np.uint64
-    keyframe_id: np.uint64
+    keyframe_id: Optional[np.uint64]
     is_keyframe: bool
     time_stamp: np.float64
     pose: SE3  # Tcw
@@ -136,10 +188,13 @@ class Frame:
 
     def __init__(self, id: np.uint64 = 0, time_stamp: np.float64 = 0, pose: SE3 = None, img: np.ndarray = None):
         self.id = id
+        self.keyframe_id = None
+        self.is_keyframe = False
         self.time_stamp = time_stamp
         self.pose = pose
-        self.img = img
         self.pose_mutex = Lock()
+        self.img = img
+        self.features = []
 
     def get_pose(self) -> SE3:
         with self.pose_mutex:
@@ -151,6 +206,7 @@ class Frame:
 
     def set_keyframe(self):
         self.is_keyframe = True
+        self.keyframe_id = Frame._keyframe_factory_id
         Frame._keyframe_factory_id += 1
 
     @staticmethod
@@ -162,6 +218,7 @@ class Frame:
 
 class Map:
     NUM_ACTIVE_KEYFRAMES = 7
+    MIN_DIST_THRESHOLD = 0.2
 
     __slots__ = (
         "_landmarks", "_keyframes", "_active_landmarks", "_active_keyframes", "_data_mutex", "_current_frame"
@@ -187,7 +244,8 @@ class Map:
             self._remove_old_keyframe()
 
     def insert_map_point(self, map_point: MapPoint):
-        pass
+        self._landmarks[map_point.id] = map_point
+        self._active_landmarks[map_point.id] = map_point
 
     def get_all_keyframes(self) -> dict[np.uint64, Frame]:
         with self._data_mutex:
@@ -206,9 +264,17 @@ class Map:
             return self._active_landmarks
 
     def clean_map(self):
-        pass
+        cnt_removed = 0
+        for l_id in list(self._active_landmarks.keys()):
+            if self._active_landmarks[l_id].observed_times == 0:
+                self._active_landmarks.pop(l_id)
+                cnt_removed += 1
+        logger.info(f"Removed {cnt_removed} active landmarks")
 
     def _remove_old_keyframe(self):
+        """
+        Find closest and farthest keyframe. Remove closest if it's too close to current frame, otherwise remove farthest
+        """
         if self._current_frame is None:
             return
 
@@ -217,17 +283,37 @@ class Map:
 
         twc = self._current_frame.pose.inverse()  # transform of current frame in world coordinates
         for kf_id, kf in self._active_keyframes.items():
-            if kf.id == self._current_frame.id:
+            if kf_id == self._current_frame.id:
                 continue
 
-            dist = (kf.pose @ twc).log()
-            a = SE3().normalize()
+            dist = np.linalg.norm((kf.pose @ twc).log())
+            if dist > max_dist:
+                max_dist = dist
+                max_keyframe_id = kf_id
+            elif dist < min_dist:
+                min_dist = dist
+                min_keyframe_id = kf_id
+
+        if min_dist < Map.MIN_DIST_THRESHOLD:
+            keyframe_to_remove = self._keyframes[min_keyframe_id]
+        else:
+            keyframe_to_remove = self._keyframes[max_keyframe_id]
+
+        logger.info(f"Removing keyframe: {keyframe_to_remove.keyframe_id}")
+        self._active_keyframes.pop(keyframe_to_remove.keyframe_id)
+
+        for feature in keyframe_to_remove.features:
+            if feature.map_point:
+                feature.map_point.remove_observation(feature)
+
+        self.clean_map()
+
+
 
 
 class SLAM:
     def __init__(self):
         pass
-
 
 
 def main():
@@ -244,7 +330,6 @@ def main():
     bf_matcher = BruteForceFeatureMatcher(norm_type=NORM_HAMMING)
     matches = bf_matcher.match_features(des1, des2, 25)
 
-
     R, t = pose_estimation_2d2d(kp1, kp2, matches, camera_matrix)
     print(R, t)
     from sophuspy import SE3 as s_se3
@@ -252,8 +337,6 @@ def main():
     from jaxlie import SO3 as j_so3
     s_pose = s_se3(R, t)
     j_pose = j_se3.from_rotation_and_translation(rotation=j_so3.from_matrix(R), translation=t.flatten())
-    print(s_pose.log())
-    print(j_pose.log())
 
     points = triangulation(kp1, kp2, matches, R, t, camera_matrix)
 
