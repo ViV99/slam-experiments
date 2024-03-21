@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import logging as logger
 from typing import Sequence, Optional
+from enum import Enum
 
 import cv2
 import numpy as np
 from cv2 import NORM_HAMMING, KeyPoint, DMatch, findEssentialMat, findHomography, recoverPose, triangulatePoints
 from jaxlie import SO3, SE3
 
-from feature_exractors import OrbFeatureExtractor
+from feature_detectors import OrbFeatureDetector, FeatureDetector
 from feature_matchers import BruteForceFeatureMatcher
 
 from multiprocessing import Process, Queue, Lock
@@ -89,8 +90,92 @@ def get_color(depth: float) -> tuple[float, float, float]:
 
 
 class Frontend:
+    NUM_FEATURES = 200
+    NUM_FEATURES_INIT = 100
+    NUM_FEATURES_TRACKING = 50
+    NUM_FEATURES_TRACKING_BAD = 20
+    NUM_FEATURES_FOR_KEYFRAME = 80
+
+    class Status(Enum):
+        INITIALIZING = 0
+        GOOD_TRACKING = 1
+        BAD_TRACKING = 2
+        LOST = 3
+
+    __slots__ = (
+        "_status", "_current_frame", "_last_frame", "_camera", "_map", "_backend", "_viewer", "_relative_motion",
+        "_tracking_inliers", "_feature_detector"
+    )
+
+    _status: Frontend.Status
+    _current_frame: Frame
+    _last_frame: Frame
+    _camera: Camera
+    _map: Map
+    _backend: Backend
+    _viewer: Viewer
+    _relative_motion: SE3
+    _tracking_inliers: int
+    _feature_detector: FeatureDetector
+
     def __init__(self):
         pass
+
+    def _init(self):
+        pass
+
+    def _track(self):
+        pass
+
+    def _reset(self):
+        pass
+
+    def _track_last_frame(self):
+        pass
+
+    def _estimate_current_pose(self) -> int:
+        pass
+
+    def _insert_keyframe(self):
+        pass
+
+    def _detect_features(self) -> int:
+        pass
+
+    def _init_map(self):
+        pass
+
+    def _triangulate_new_points(self) -> int:
+        pass
+
+    def set_observations_for_keyframe(self):
+        pass
+
+    def add_frame(self, frame: Frame):
+        self._current_frame = frame
+
+        if self._status == Frontend.Status.INITIALIZING:
+            self._init()
+        elif self._status == Frontend.Status.GOOD_TRACKING or self._status == Frontend.Status.BAD_TRACKING:
+            self._track()
+        elif self._status == Frontend.Status.LOST:
+            self._reset()
+
+        self._last_frame = self._current_frame
+
+    def set_map(self, map: Map):
+        pass
+
+    def set_backend(self, backend: Backend):
+        pass
+
+    # def set_viewer(self, viewer: Viewer):
+    #     pass
+
+    def get_status(self) -> Frontend.Status:
+        return self._status
+
+
 
 
 class Backend:
@@ -320,13 +405,13 @@ def main():
     camera_matrix = np.array([[520.9, 0, 325.1],
                               [0, 521., 249.7],
                               [0, 0, 1]])
-    orb_extractor = OrbFeatureExtractor(n_features=500)
+    orb_detector = OrbFeatureDetector(n_features=500)
     img1 = cv2.imread("1.png", flags=cv2.IMREAD_COLOR)
     img2 = cv2.imread("2.png", flags=cv2.IMREAD_COLOR)
     # img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
     # img2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
-    kp1, des1 = orb_extractor.get_features(img1)
-    kp2, des2 = orb_extractor.get_features(img2)
+    kp1, des1 = orb_detector.get_features(img1)
+    kp2, des2 = orb_detector.get_features(img2)
     bf_matcher = BruteForceFeatureMatcher(norm_type=NORM_HAMMING)
     matches = bf_matcher.match_features(des1, des2, 25)
 
