@@ -89,12 +89,19 @@ def get_color(depth: float) -> tuple[float, float, float]:
     return 255 * depth / th_range, 0, 255 * (1 - depth / th_range)
 
 
+class Viewer:
+    raise NotImplementedError()
+
+class Camera:
+    raise NotImplementedError()
+
+
 class Frontend:
-    NUM_FEATURES = 200
-    NUM_FEATURES_INIT = 100
-    NUM_FEATURES_TRACKING = 50
-    NUM_FEATURES_TRACKING_BAD = 20
-    NUM_FEATURES_FOR_KEYFRAME = 80
+    N_FEATURES = 200
+    N_FEATURES_INIT = 100
+    N_FEATURES_TRACKING = 50
+    N_FEATURES_TRACKING_BAD = 20
+    N_FEATURES_FOR_KEYFRAME = 80
 
     class Status(Enum):
         INITIALIZING = 0
@@ -104,28 +111,68 @@ class Frontend:
 
     __slots__ = (
         "_status", "_current_frame", "_last_frame", "_camera", "_map", "_backend", "_viewer", "_relative_motion",
-        "_tracking_inliers", "_feature_detector"
+        "_tracking_inliers", "_feature_detector", "n_features", "n_features_init", "n_features_good_tracking",
+        "n_features_bad_tracking", "n_features_tracking_for_keyframe"
     )
 
     _status: Frontend.Status
-    _current_frame: Frame
-    _last_frame: Frame
+    _current_frame: Optional[Frame]
+    _last_frame: Optional[Frame]
     _camera: Camera
     _map: Map
     _backend: Backend
-    _viewer: Viewer
+    _viewer: Optional[Viewer]
     _relative_motion: SE3
     _tracking_inliers: int
     _feature_detector: FeatureDetector
 
-    def __init__(self):
-        pass
+    n_features: int
+    n_features_init: int
+    n_features_tracking_good: int
+    n_features_tracking_bad: int
+    n_features_tracking_for_keyframe: int
+
+    def __init__(
+            self,
+            feature_detector: FeatureDetector,
+            n_features: int = 200,
+            n_features_init: int = 100,
+            viewer: Viewer = None
+    ):
+        self._feature_detector = feature_detector
+        self._viewer = viewer
+        self.n_features = n_features
+        self.n_features_init = n_features_init
+        self.n_features_good_tracking = 50
+        self.n_features_bad_tracking = 20
+        self.n_features_tracking_for_keyframe = 80
+        self._current_frame = None
+        self._last_frame = None
+
 
     def _init(self):
         pass
 
     def _track(self):
-        pass
+        if self._last_frame:
+            self._current_frame.set_pose(self._relative_motion @ self._last_frame.pose)
+
+        n_track_last = self._track_last_frame()
+        self._tracking_inliers = self._estimate_current_pose()
+
+        if self._tracking_inliers > self.n_features_good_tracking:
+            self._status = Frontend.Status.GOOD_TRACKING
+        elif self._tracking_inliers > self.n_features_bad_tracking:
+            self._status = Frontend.Status.BAD_TRACKING
+        else:
+            self._status = Frontend.Status.LOST
+
+        self._insert_keyframe()
+
+        self._relative_motion = self._current_frame.pose @ self._last_frame.pose.inverse()
+
+        if self._viewer:
+            raise NotImplementedError()
 
     def _reset(self):
         pass
@@ -148,7 +195,7 @@ class Frontend:
     def _triangulate_new_points(self) -> int:
         pass
 
-    def set_observations_for_keyframe(self):
+    def _set_observations_for_keyframe(self):
         pass
 
     def add_frame(self, frame: Frame):
