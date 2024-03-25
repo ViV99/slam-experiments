@@ -6,7 +6,7 @@ from enum import Enum
 
 import cv2
 import numpy as np
-from cv2 import NORM_HAMMING, KeyPoint, DMatch, findEssentialMat, findHomography, recoverPose, triangulatePoints
+# from cv2 import NORM_HAMMING, KeyPoint, DMatch, findEssentialMat, findHomography, recoverPose, triangulatePoints
 from jaxlie import SO3, SE3
 
 from feature_detectors import OrbFeatureDetector, FeatureDetector
@@ -16,9 +16,9 @@ from multiprocessing import Process, Queue, Lock
 
 
 def pose_estimation_2d2d(
-    source_keypoints: Sequence[KeyPoint],
-    query_keypoints: Sequence[KeyPoint],
-    matches: Sequence[DMatch],
+    source_keypoints: Sequence[cv2.KeyPoint],
+    query_keypoints: Sequence[cv2.KeyPoint],
+    matches: Sequence[cv2.DMatch],
     camera_matrix: Optional[np.ndarray] = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     source_pts, query_pts = [], []
@@ -30,8 +30,8 @@ def pose_estimation_2d2d(
     query_pts = np.array(query_pts)
 
     if camera_matrix is not None:
-        essential_matrix, _ = findEssentialMat(source_pts, query_pts, cameraMatrix=camera_matrix)
-        _, R, t, _ = recoverPose(essential_matrix, source_pts, query_pts, cameraMatrix=camera_matrix)
+        essential_matrix, _ = cv2.findEssentialMat(source_pts, query_pts, cameraMatrix=camera_matrix)
+        _, R, t, _ = cv2.recoverPose(essential_matrix, source_pts, query_pts, cameraMatrix=camera_matrix)
         return R, t
     else:
         raise NotImplementedError
@@ -46,9 +46,9 @@ def pixel2cam(p: Sequence[float], camera_matrix: np.ndarray):
 
 
 def triangulation(
-    source_keypoints: Sequence[KeyPoint],
-    query_keypoints: Sequence[KeyPoint],
-    matches: Sequence[DMatch],
+    source_keypoints: Sequence[cv2.KeyPoint],
+    query_keypoints: Sequence[cv2.KeyPoint],
+    matches: Sequence[cv2.DMatch],
     R: np.ndarray,
     t: np.ndarray,
     camera_matrix: np.ndarray,
@@ -69,7 +69,7 @@ def triangulation(
     source_pts = np.array(source_pts)
     query_pts = np.array(query_pts)
 
-    pts_4d = triangulatePoints(T1, T2, source_pts.T, query_pts.T)
+    pts_4d = cv2.triangulatePoints(T1, T2, source_pts.T, query_pts.T)
 
     pts = []
     for i in range(pts_4d.shape[1]):
@@ -90,10 +90,88 @@ def get_color(depth: float) -> tuple[float, float, float]:
 
 
 class Viewer:
-    raise NotImplementedError()
+    pass
+
 
 class Camera:
-    raise NotImplementedError()
+    __slots__ = ("fx", "fy", "cx", "cy", "pose", "pose_inv")
+
+    fx: float
+    fy: float
+    cx: float
+    cy: float
+    pose: SE3
+    pose_inv: SE3
+
+    def __init__(self, fx: float, fy: float, cx: float, cy: float, pose: SE3):
+        self.fx = fx
+        self.fy = fy
+        self.cx = cx
+        self.cy = cy
+        self.pose = pose
+        self.pose_inv = pose.inverse()
+
+    def K(self) -> np.ndarray:
+        return np.array([
+            [self.fx, 0, self.cx],
+            [0, self.fy, self.cy],
+            [0, 0, 1]
+        ], dtype=np.float64)
+
+    def world_to_camera(self, p_w: np.ndarray, t_c_w: SE3) -> np.ndarray:
+        """
+        :param p_w: np.array[3,]
+        :param t_c_w: SE3
+        :return: np.ndarray[3,]
+        """
+        return self.pose @ t_c_w @ p_w
+
+    def camera_to_world(self, p_c: np.ndarray, t_c_w: SE3) -> np.ndarray:
+        """
+        :param p_c: np.array[3,]
+        :param t_c_w: SE3
+        :return: np.ndarray[3,]
+        """
+        return t_c_w.inverse() @ self.pose_inv @ p_c
+
+    def camera_to_pixel(self, p_c: np.ndarray) -> np.ndarray:
+        """
+        :param p_c: np.array[3,]
+        :return: np.ndarray[2,]
+        """
+        return np.array([
+            self.fx * p_c[0] / p_c[2] + self.cx,
+            self.fy * p_c[1] / p_c[2] + self.cy
+        ])
+
+    def pixel_to_camera(self, p_p: np.ndarray, depth: float = 1) -> np.ndarray:
+        """
+        :param p_p: np.array[2,]
+        :param depth: float
+        :return: np.ndarray[3,]
+        """
+        return np.array([
+            (p_p[0] - self.cx) * depth / self.fx,
+            (p_p[1] - self.cy) * depth / self.fy,
+            depth
+        ])
+
+    def pixel_to_world(self, p_p: np.ndarray, t_c_w: SE3, depth: float = 1) -> np.ndarray:
+        """
+        :param p_p: np.array[2,]
+        :param t_c_w: SE3
+        :param depth: float
+        :return: np.ndarray[3,]
+        """
+        return self.camera_to_world(self.pixel_to_camera(p_p, depth), t_c_w)
+
+    def world_to_pixel(self, p_w: np.ndarray, t_c_w: SE3) -> np.ndarray:
+        """
+        :param p_w: np.array[3,]
+        :param t_c_w: SE3
+        :return: np.ndarray[2,]
+        """
+        return self.camera_to_pixel(self.world_to_camera(p_w, t_c_w))
 
 
 class Frontend:
@@ -149,15 +227,22 @@ class Frontend:
         self._current_frame = None
         self._last_frame = None
 
+    def _init(self) -> bool:
+        if self._init_map():
+            self._status = Frontend.Status.GOOD_TRACKING
+            if self._viewer:
+                # self._viewer.add_current_frame(self._current_frame)
+                # self._viewer.update_map()
+                raise NotImplementedError()
+            return True
 
-    def _init(self):
-        pass
+        return False
 
     def _track(self):
         if self._last_frame:
             self._current_frame.set_pose(self._relative_motion @ self._last_frame.pose)
 
-        n_track_last = self._track_last_frame()
+        self._track_last_frame()
         self._tracking_inliers = self._estimate_current_pose()
 
         if self._tracking_inliers > self.n_features_good_tracking:
@@ -172,6 +257,7 @@ class Frontend:
         self._relative_motion = self._current_frame.pose @ self._last_frame.pose.inverse()
 
         if self._viewer:
+            # self._viewer.add_current_frame(self._current_frame)
             raise NotImplementedError()
 
     def _reset(self):
@@ -187,10 +273,33 @@ class Frontend:
         pass
 
     def _detect_features(self) -> int:
-        pass
+        mask = np.full(self._current_frame.img.shape[:2], fill_value=255, dtype=np.uint8)
+        for feature in self._current_frame.features:
+            pt = np.array(feature.position.pt)
+            mask = cv2.rectangle(
+                mask,
+                pt - np.array([10, 10]),
+                pt + np.array([10, 10]),
+                0,
+                cv2.FILLED
+            )
+        keypoints = self._feature_detector.detect(self._current_frame.img, mask)
+        cnt_detected = 0
+        for kp in keypoints:
+            self._current_frame.features.append(Feature(self._current_frame, kp))
+            cnt_detected += 1
+
+        logger.info(f"Detected {cnt_detected} new features")
+        return cnt_detected
+
 
     def _init_map(self):
-        pass
+        poses = [self._camera.pose]
+        cnt_init_landmarks = 0
+
+        for feature in self._current_frame.features:
+            point_camera = self._camera.pixel_to_camera(np.array(feature.position.pt), )
+
 
     def _triangulate_new_points(self) -> int:
         pass
@@ -236,14 +345,15 @@ class Feature:
     )
 
     frame: Frame
-    position: KeyPoint
+    position: cv2.KeyPoint
     map_point: Optional[MapPoint]
     is_outlier: bool
 
-    def __init__(self, frame: Frame, kp: KeyPoint):
+    def __init__(self, frame: Frame, kp: cv2.KeyPoint):
         self.frame = frame
         self.position = kp
         self.is_outlier = False
+        self.map_point = None
 
 
 class MapPoint:
@@ -457,9 +567,9 @@ def main():
     img2 = cv2.imread("2.png", flags=cv2.IMREAD_COLOR)
     # img1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
     # img2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
-    kp1, des1 = orb_detector.get_features(img1)
-    kp2, des2 = orb_detector.get_features(img2)
-    bf_matcher = BruteForceFeatureMatcher(norm_type=NORM_HAMMING)
+    kp1, des1 = orb_detector.detect_and_compute(img1)
+    kp2, des2 = orb_detector.detect_and_compute(img2)
+    bf_matcher = BruteForceFeatureMatcher(norm_type=cv2.NORM_HAMMING)
     matches = bf_matcher.match_features(des1, des2, 25)
 
     R, t = pose_estimation_2d2d(kp1, kp2, matches, camera_matrix)
@@ -469,9 +579,14 @@ def main():
     from jaxlie import SO3 as j_so3
     s_pose = s_se3(R, t)
     j_pose = j_se3.from_rotation_and_translation(rotation=j_so3.from_matrix(R), translation=t.flatten())
-
-    points = triangulation(kp1, kp2, matches, R, t, camera_matrix)
+    pose1 = j_se3.from_rotation_and_translation(rotation=j_so3.from_matrix(R), translation=t.flatten())
+    pose2 = j_se3.from_rotation_and_translation(rotation=j_so3.from_matrix(R - 1), translation=t.flatten() + 1)
+    print(pose1 @ pose2 @ np.array([1, 2, 0]))
+    # points = triangulation(kp1, kp2, matches, R, t, camera_matrix)
 
 
 if __name__ == "__main__":
     main()
+    # img = np.full((10, 10), fill_value=255, dtype=np.uint8)
+    # img = cv2.rectangle(img, np.array([2, 2]), np.array([4, 4]), 0, cv2.FILLED)
+    # print()
