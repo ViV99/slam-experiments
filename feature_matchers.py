@@ -8,9 +8,9 @@ from cv2 import KeyPoint, DMatch, BFMatcher, drawMatches, imshow
 
 class FeatureMatcher(ABC):
     @abstractmethod
-    def match_features(
+    def match(
         self, source_descriptors: np.ndarray, query_descriptors: np.ndarray
-    ) -> Sequence:
+    ) -> Sequence[DMatch]:
         raise NotImplementedError
 
     @classmethod
@@ -33,7 +33,7 @@ class BruteForceFeatureMatcher(FeatureMatcher):
     def __init__(self, norm_type: int):
         self.bf = BFMatcher(normType=norm_type)
 
-    def match_features(
+    def match(
         self, source_descriptors: np.ndarray, query_descriptors: np.ndarray, dist_threshold: Optional[float] = None
     ) -> Sequence[DMatch]:
         matches = self.bf.match(query_descriptors, source_descriptors)

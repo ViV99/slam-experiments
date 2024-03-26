@@ -10,7 +10,7 @@ import numpy as np
 from jaxlie import SO3, SE3
 
 from feature_detectors import OrbFeatureDetector, FeatureDetector
-from feature_matchers import BruteForceFeatureMatcher
+from feature_matchers import BruteForceFeatureMatcher, FeatureMatcher
 
 from multiprocessing import Process, Queue, Lock
 
@@ -38,38 +38,31 @@ def pose_estimation_2d2d(
         # homography_matrix = findHomography(source_pts, query_pts, method=RANSAC, ransacReprojThreshold=3)
 
 
-def pixel2cam(p: Sequence[float], camera_matrix: np.ndarray):
-    return np.array([
-        (p[0] - camera_matrix[0, 2]) / camera_matrix[0, 0],
-        (p[1] - camera_matrix[1, 2]) / camera_matrix[1, 1]
-    ])
-
-
 def triangulation(
     source_keypoints: Sequence[cv2.KeyPoint],
     query_keypoints: Sequence[cv2.KeyPoint],
     matches: Sequence[cv2.DMatch],
-    R: np.ndarray,
-    t: np.ndarray,
-    camera_matrix: np.ndarray,
+    camera: Camera,
 ) -> np.ndarray:
     """
     Returns Nx3 triangulated points in world coordinates
     """
-    T1 = np.array([[1, 0, 0, 0],
-                   [0, 1, 0, 0],
-                   [0, 0, 1, 0]])
-    T2 = R[:, [0, 1, 2, 0]]
+    projection_source = np.array([
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 1, 0]
+    ])
+    projection_query = camera.projection
 
     source_pts, query_pts = [], []
     for match in matches:
-        source_pts.append(pixel2cam(source_keypoints[match.trainIdx].pt, camera_matrix))
-        query_pts.append(pixel2cam(query_keypoints[match.queryIdx].pt, camera_matrix))
+        source_pts.append(camera.pixel_to_camera(np.array(source_keypoints[match.trainIdx].pt)))
+        query_pts.append(camera.pixel_to_camera(np.array(query_keypoints[match.queryIdx].pt)))
 
     source_pts = np.array(source_pts)
     query_pts = np.array(query_pts)
 
-    pts_4d = cv2.triangulatePoints(T1, T2, source_pts.T, query_pts.T)
+    pts_4d = cv2.triangulatePoints(projection_source, projection_query, source_pts.T, query_pts.T)
 
     pts = []
     for i in range(pts_4d.shape[1]):
@@ -100,7 +93,7 @@ class Camera:
     fy: float
     cx: float
     cy: float
-    pose: SE3
+    pose: SE3  # camera rotation and translation (extrinsics) - world to camera transform
     pose_inv: SE3
 
     def __init__(self, fx: float, fy: float, cx: float, cy: float, pose: SE3):
@@ -111,7 +104,15 @@ class Camera:
         self.pose = pose
         self.pose_inv = pose.inverse()
 
-    def K(self) -> np.ndarray:
+    @property
+    def projection(self) -> np.ndarray:
+        return self.intrinsics @ self.pose.as_matrix()[:-1]
+
+    @property
+    def intrinsics(self) -> np.ndarray:
+        """
+        :return: camera intrinsics matrix - camera to pixel transform
+        """
         return np.array([
             [self.fx, 0, self.cx],
             [0, self.fy, self.cy],
@@ -175,22 +176,15 @@ class Camera:
 
 
 class Frontend:
-    N_FEATURES = 200
-    N_FEATURES_INIT = 100
-    N_FEATURES_TRACKING = 50
-    N_FEATURES_TRACKING_BAD = 20
-    N_FEATURES_FOR_KEYFRAME = 80
-
     class Status(Enum):
         INITIALIZING = 0
-        GOOD_TRACKING = 1
-        BAD_TRACKING = 2
-        LOST = 3
+        TRACKING = 1
+        LOST = 2
 
     __slots__ = (
         "_status", "_current_frame", "_last_frame", "_camera", "_map", "_backend", "_viewer", "_relative_motion",
-        "_tracking_inliers", "_feature_detector", "n_features", "n_features_init", "n_features_good_tracking",
-        "n_features_bad_tracking", "n_features_tracking_for_keyframe"
+        "_tracking_inliers", "_feature_detector", "_feature_matcher", "n_features", "n_features_init",
+        "n_features_tracking", "n_features_tracking_for_keyframe", "feature_radius"
     )
 
     _status: Frontend.Status
@@ -203,33 +197,49 @@ class Frontend:
     _relative_motion: SE3
     _tracking_inliers: int
     _feature_detector: FeatureDetector
+    _feature_matcher: FeatureMatcher
 
     n_features: int
     n_features_init: int
-    n_features_tracking_good: int
-    n_features_tracking_bad: int
+    n_features_tracking: int
     n_features_tracking_for_keyframe: int
+    feature_radius: int
 
     def __init__(
             self,
             feature_detector: FeatureDetector,
+            feature_matcher: FeatureMatcher,
             n_features: int = 200,
             n_features_init: int = 100,
+            feature_radius: int = 10,
             viewer: Viewer = None
     ):
         self._feature_detector = feature_detector
+        self._feature_matcher = feature_matcher
         self._viewer = viewer
         self.n_features = n_features
         self.n_features_init = n_features_init
-        self.n_features_good_tracking = 50
-        self.n_features_bad_tracking = 20
+        self.n_features_tracking = 50
         self.n_features_tracking_for_keyframe = 80
+        self.feature_radius = feature_radius
         self._current_frame = None
         self._last_frame = None
 
+    def add_frame(self, frame: Frame):
+        self._current_frame = frame
+
+        if self._status == Frontend.Status.INITIALIZING:
+            self._init()
+        elif self._status == Frontend.Status.TRACKING:
+            self._track()
+        elif self._status == Frontend.Status.LOST:
+            self._reset()
+
+        self._last_frame = self._current_frame
+
     def _init(self) -> bool:
         if self._init_map():
-            self._status = Frontend.Status.GOOD_TRACKING
+            self._status = Frontend.Status.TRACKING
             if self._viewer:
                 # self._viewer.add_current_frame(self._current_frame)
                 # self._viewer.update_map()
@@ -242,13 +252,11 @@ class Frontend:
         if self._last_frame:
             self._current_frame.set_pose(self._relative_motion @ self._last_frame.pose)
 
-        self._track_last_frame()
+        self._track_current_frame()
         self._tracking_inliers = self._estimate_current_pose()
 
-        if self._tracking_inliers > self.n_features_good_tracking:
-            self._status = Frontend.Status.GOOD_TRACKING
-        elif self._tracking_inliers > self.n_features_bad_tracking:
-            self._status = Frontend.Status.BAD_TRACKING
+        if self._tracking_inliers > self.n_features_tracking:
+            self._status = Frontend.Status.TRACKING
         else:
             self._status = Frontend.Status.LOST
 
@@ -263,8 +271,44 @@ class Frontend:
     def _reset(self):
         pass
 
-    def _track_last_frame(self):
-        pass
+    def _track_current_frame(self):
+        keypoints_last, descriptors_last = [], []
+        keypoints_cur = []
+        mask = np.full(self._current_frame.img.shape[:2], fill_value=0, dtype=np.uint8)
+        for feature in self._last_frame.features:
+            descriptors_last.append(feature.descriptor)
+            pt = np.array(feature.position.pt)
+            if feature.map_point:  # can use more accurate pixel coordinates
+                point_pixel = self._camera.world_to_pixel(feature.map_point.pos, self._current_frame.pose)
+                keypoints_last.append(pt)
+                keypoints_cur.append(point_pixel)
+            else:
+                keypoints_last.append(pt)
+                keypoints_cur.append(pt)
+
+            mask = cv2.rectangle(
+                mask,
+                keypoints_cur[-1] - np.array([self.feature_radius, self.feature_radius]),
+                keypoints_cur[-1] + np.array([self.feature_radius, self.feature_radius]),
+                255,
+                cv2.FILLED
+            )
+        keypoints_cur, descriptors_cur = self._feature_detector.detect_and_compute(self._current_frame.img, mask)
+        matches = self._feature_matcher.match(np.array(descriptors_last), descriptors_cur)
+
+        for match in matches:
+            feature = Feature(self._current_frame, keypoints_cur[match.queryIdx], descriptors_cur[match.queryIdx])
+            feature.map_point = self._last_frame.features[match.trainIdx].map_point
+            self._current_frame.features.append(feature)
+
+        logger.info(f"Found {len(matches)} matches for features")
+        return len(matches)
+
+
+
+
+
+
 
     def _estimate_current_pose(self) -> int:
         pass
@@ -278,27 +322,27 @@ class Frontend:
             pt = np.array(feature.position.pt)
             mask = cv2.rectangle(
                 mask,
-                pt - np.array([10, 10]),
-                pt + np.array([10, 10]),
+                pt - np.array([self.feature_radius, self.feature_radius]),
+                pt + np.array([self.feature_radius, self.feature_radius]),
                 0,
                 cv2.FILLED
             )
-        keypoints = self._feature_detector.detect(self._current_frame.img, mask)
+        keypoints, descriptors = self._feature_detector.detect_and_compute(self._current_frame.img, mask)
         cnt_detected = 0
-        for kp in keypoints:
-            self._current_frame.features.append(Feature(self._current_frame, kp))
+        for i in range(len(keypoints)):
+            self._current_frame.features.append(Feature(self._current_frame, keypoints[i], descriptors[i]))
             cnt_detected += 1
 
         logger.info(f"Detected {cnt_detected} new features")
         return cnt_detected
-
 
     def _init_map(self):
         poses = [self._camera.pose]
         cnt_init_landmarks = 0
 
         for feature in self._current_frame.features:
-            point_camera = self._camera.pixel_to_camera(np.array(feature.position.pt), )
+            point_camera = self._camera.pixel_to_camera(np.array(feature.position.pt))
+            triangulation()
 
 
     def _triangulate_new_points(self) -> int:
@@ -306,18 +350,6 @@ class Frontend:
 
     def _set_observations_for_keyframe(self):
         pass
-
-    def add_frame(self, frame: Frame):
-        self._current_frame = frame
-
-        if self._status == Frontend.Status.INITIALIZING:
-            self._init()
-        elif self._status == Frontend.Status.GOOD_TRACKING or self._status == Frontend.Status.BAD_TRACKING:
-            self._track()
-        elif self._status == Frontend.Status.LOST:
-            self._reset()
-
-        self._last_frame = self._current_frame
 
     def set_map(self, map: Map):
         pass
@@ -341,17 +373,19 @@ class Backend:
 
 class Feature:
     __slots__ = (
-        "frame", "position", "map_point", "is_outlier"
+        "frame", "position", "map_point", "is_outlier", "descriptor"
     )
 
     frame: Frame
     position: cv2.KeyPoint
+    # descriptor: None
     map_point: Optional[MapPoint]
     is_outlier: bool
 
-    def __init__(self, frame: Frame, kp: cv2.KeyPoint):
+    def __init__(self, frame: Frame, kp: cv2.KeyPoint, descriptor):
         self.frame = frame
         self.position = kp
+        self.descriptor = descriptor
         self.is_outlier = False
         self.map_point = None
 
@@ -581,12 +615,9 @@ def main():
     j_pose = j_se3.from_rotation_and_translation(rotation=j_so3.from_matrix(R), translation=t.flatten())
     pose1 = j_se3.from_rotation_and_translation(rotation=j_so3.from_matrix(R), translation=t.flatten())
     pose2 = j_se3.from_rotation_and_translation(rotation=j_so3.from_matrix(R - 1), translation=t.flatten() + 1)
-    print(pose1 @ pose2 @ np.array([1, 2, 0]))
+    print(np.array([[5, 0, 2], [0, 5, 2], [0, 0, 1]]) @ pose1.as_matrix()[:-1])
     # points = triangulation(kp1, kp2, matches, R, t, camera_matrix)
 
 
 if __name__ == "__main__":
     main()
-    # img = np.full((10, 10), fill_value=255, dtype=np.uint8)
-    # img = cv2.rectangle(img, np.array([2, 2]), np.array([4, 4]), 0, cv2.FILLED)
-    # print()
