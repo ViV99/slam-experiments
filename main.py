@@ -5,6 +5,7 @@ from typing import Sequence, Optional
 from enum import Enum
 
 import cv2
+import g2o
 import numpy as np
 # from cv2 import NORM_HAMMING, KeyPoint, DMatch, findEssentialMat, findHomography, recoverPose, triangulatePoints
 from jaxlie import SO3, SE3
@@ -237,16 +238,13 @@ class Frontend:
 
         self._last_frame = self._current_frame
 
-    def _init(self) -> bool:
+    def _init(self):
         if self._init_map():
             self._status = Frontend.Status.TRACKING
             if self._viewer:
                 # self._viewer.add_current_frame(self._current_frame)
                 # self._viewer.update_map()
                 raise NotImplementedError()
-            return True
-
-        return False
 
     def _track(self):
         if self._last_frame:
@@ -301,17 +299,77 @@ class Frontend:
             feature.map_point = self._last_frame.features[match.trainIdx].map_point
             self._current_frame.features.append(feature)
 
-        logger.info(f"Found {len(matches)} matches for features")
+        logger.info("Found %s matches for features", len(matches))
         return len(matches)
 
-
-
-
-
-
-
     def _estimate_current_pose(self) -> int:
-        pass
+        solver = g2o.OptimizationAlgorithmLevenberg(g2o.BlockSolverSE3(g2o.LinearSolverDenseSE3()))
+        optimizer = g2o.SparseOptimizer()
+        optimizer.set_algorithm(solver)
+        optimizer.set_verbose(False)
+
+        vertex_pose = g2o.VertexSE3Expmap()
+        vertex_pose.set_id(0)
+        vertex_pose.set_estimate(
+            g2o.SE3Quat(self._current_frame.pose.rotation().as_matrix(), self._current_frame.pose.translation())
+        )
+        optimizer.add_vertex(vertex_pose)
+
+        intrinsics = self._camera.intrinsics  # TODO
+        index = 1
+        edges, features = [], []
+        for feature in self._current_frame.features:
+            if feature.map_point:
+                features.append(feature)
+                edge = g2o.EdgeSE3ProjectXYZOnlyPose().initial_estimate()
+
+                g2o.EdgeProjec
+                edge.set_id(index)
+                edge.set_vertex(0, vertex_pose)
+                edge.set_measurement(np.array(feature.position.pt))
+                edge.set_information(np.identity(2))
+                edge.set_robust_kernel(g2o.RobustKernelHuber())
+                edges.append(edge)
+                optimizer.add_edge(edge)
+                index += 1
+
+        chi2_threshold = 5.991
+        cnt_outliers = 0
+        for iteration in range(4):
+            cnt_outliers = 0
+            vertex_pose.set_estimate(
+                g2o.SE3Quat(self._current_frame.pose.rotation().as_matrix(), self._current_frame.pose.translation())
+            )
+            optimizer.initialize_optimization()
+            optimizer.optimize(10)
+            for i in range(len(edges)):
+                if features[i].is_outlier:
+                    edges[i].compute_error()
+                if edges[i].chi2() > chi2_threshold:
+                    features[i].is_outlier = True
+                    edges[i].set_level(1)
+                    cnt_outliers += 1
+                else:
+                    features[i].is_outlier = False
+                    edges[i].set_level(0)
+                if iteration == 2:
+                    edges[i].set_robust_kernel(None)
+
+        logger.info("Outlier/Inlier in pose estimation: %s / %s", cnt_outliers, len(features) - cnt_outliers)
+
+        self._current_frame.set_pose(SE3.from_matrix(vertex_pose.estimate().maxtrix()))
+
+        logger.info("Current Pose = %s", self._current_frame.pose)
+        for feature in features:
+            if feature.is_outlier:
+                feature.map_point = None
+                feature.is_outlier = False
+
+        return len(features) - cnt_outliers
+
+
+
+
 
     def _insert_keyframe(self):
         pass
@@ -333,7 +391,7 @@ class Frontend:
             self._current_frame.features.append(Feature(self._current_frame, keypoints[i], descriptors[i]))
             cnt_detected += 1
 
-        logger.info(f"Detected {cnt_detected} new features")
+        logger.info("Detected %s new features", cnt_detected)
         return cnt_detected
 
     def _init_map(self):
@@ -545,7 +603,7 @@ class Map:
             if self._active_landmarks[l_id].observed_times == 0:
                 self._active_landmarks.pop(l_id)
                 cnt_removed += 1
-        logger.info(f"Removed {cnt_removed} active landmarks")
+        logger.info("Removed %s active landmarks", cnt_removed)
 
     def _remove_old_keyframe(self):
         """
@@ -575,7 +633,7 @@ class Map:
         else:
             keyframe_to_remove = self._keyframes[max_keyframe_id]
 
-        logger.info(f"Removing keyframe: {keyframe_to_remove.keyframe_id}")
+        logger.info("Removing keyframe: %s", keyframe_to_remove.keyframe_id)
         self._active_keyframes.pop(keyframe_to_remove.keyframe_id)
 
         for feature in keyframe_to_remove.features:
@@ -583,8 +641,6 @@ class Map:
                 feature.map_point.remove_observation(feature)
 
         self.clean_map()
-
-
 
 
 class SLAM:
@@ -604,7 +660,7 @@ def main():
     kp1, des1 = orb_detector.detect_and_compute(img1)
     kp2, des2 = orb_detector.detect_and_compute(img2)
     bf_matcher = BruteForceFeatureMatcher(norm_type=cv2.NORM_HAMMING)
-    matches = bf_matcher.match_features(des1, des2, 25)
+    matches = bf_matcher.match(des1, des2, 25)
 
     R, t = pose_estimation_2d2d(kp1, kp2, matches, camera_matrix)
     print(R, t)
@@ -615,7 +671,11 @@ def main():
     j_pose = j_se3.from_rotation_and_translation(rotation=j_so3.from_matrix(R), translation=t.flatten())
     pose1 = j_se3.from_rotation_and_translation(rotation=j_so3.from_matrix(R), translation=t.flatten())
     pose2 = j_se3.from_rotation_and_translation(rotation=j_so3.from_matrix(R - 1), translation=t.flatten() + 1)
-    print(np.array([[5, 0, 2], [0, 5, 2], [0, 0, 1]]) @ pose1.as_matrix()[:-1])
+    q = g2o.SE3Quat(pose1.rotation().as_matrix(), pose1.translation())
+    edge = g2o.EdgeSE3ProjectXYZOnlyPose().initial_estimate(np.array([1, 2, 3]), pose1.rotation().as_matrix())
+
+    edge.fx = 1
+    print(edge.information())
     # points = triangulation(kp1, kp2, matches, R, t, camera_matrix)
 
 
