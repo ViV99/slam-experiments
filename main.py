@@ -308,6 +308,12 @@ class Frontend:
         optimizer.set_algorithm(solver)
         optimizer.set_verbose(False)
 
+        cam = g2o.CameraParameters(
+            (self._camera.fx + self._camera.fy) / 2, np.array([self._camera.cx, self._camera.cy]), 0
+        )
+        cam.set_id(0)
+        optimizer.add_parameter(cam)
+
         vertex_pose = g2o.VertexSE3Expmap()
         vertex_pose.set_id(0)
         vertex_pose.set_estimate(
@@ -315,17 +321,22 @@ class Frontend:
         )
         optimizer.add_vertex(vertex_pose)
 
-        intrinsics = self._camera.intrinsics  # TODO
         index = 1
         edges, features = [], []
         for feature in self._current_frame.features:
             if feature.map_point:
                 features.append(feature)
-                edge = g2o.EdgeSE3ProjectXYZOnlyPose().initial_estimate()
 
-                g2o.EdgeProjec
-                edge.set_id(index)
-                edge.set_vertex(0, vertex_pose)
+                vertex_map_point = g2o.VertexPointXYZ()
+                vertex_map_point.set_id(index)
+                vertex_map_point.set_marginalized(True)
+                vertex_map_point.set_estimate(feature.map_point.pos)
+                optimizer.add_vertex(vertex_map_point)
+
+                edge = g2o.EdgeSE3ProjectXYZ()
+                edge.set_parameter_id(0, 0)
+                edge.set_vertex(0, vertex_map_point)
+                edge.set_vertex(1, vertex_pose)
                 edge.set_measurement(np.array(feature.position.pt))
                 edge.set_information(np.identity(2))
                 edge.set_robust_kernel(g2o.RobustKernelHuber())
@@ -357,7 +368,7 @@ class Frontend:
 
         logger.info("Outlier/Inlier in pose estimation: %s / %s", cnt_outliers, len(features) - cnt_outliers)
 
-        self._current_frame.set_pose(SE3.from_matrix(vertex_pose.estimate().maxtrix()))
+        self._current_frame.set_pose(SE3.from_matrix(vertex_pose.estimate().matrix()))
 
         logger.info("Current Pose = %s", self._current_frame.pose)
         for feature in features:
@@ -366,10 +377,6 @@ class Frontend:
                 feature.is_outlier = False
 
         return len(features) - cnt_outliers
-
-
-
-
 
     def _insert_keyframe(self):
         pass
@@ -671,13 +678,62 @@ def main():
     j_pose = j_se3.from_rotation_and_translation(rotation=j_so3.from_matrix(R), translation=t.flatten())
     pose1 = j_se3.from_rotation_and_translation(rotation=j_so3.from_matrix(R), translation=t.flatten())
     pose2 = j_se3.from_rotation_and_translation(rotation=j_so3.from_matrix(R - 1), translation=t.flatten() + 1)
-    q = g2o.SE3Quat(pose1.rotation().as_matrix(), pose1.translation())
-    edge = g2o.EdgeSE3ProjectXYZOnlyPose().initial_estimate(np.array([1, 2, 3]), pose1.rotation().as_matrix())
 
-    edge.fx = 1
-    print(edge.information())
+    solver = g2o.OptimizationAlgorithmLevenberg(g2o.BlockSolverSE3(g2o.LinearSolverDenseSE3()))
+    optimizer = g2o.SparseOptimizer()
+    optimizer.set_algorithm(solver)
+    optimizer.set_verbose(True)
+
+    intrinsics = np.array([
+        [5, 0, 2],
+        [0, 5, 2],
+        [0, 0, 1]
+    ])
+
+    cam = g2o.CameraParameters(5, np.array([2, 2]), 0)
+    cam.set_id(0)
+    optimizer.add_parameter(cam)
+
+    vertex_pose = g2o.VertexSE3Expmap()
+    vertex_pose.set_id(0)
+    vertex_pose.set_estimate(
+        g2o.SE3Quat(pose1.rotation().as_matrix(), pose1.translation())
+    )
+    vertex_pose.set_fixed(False)
+    optimizer.add_vertex(vertex_pose)
+    edges = []
+    for i in range(1, 11):
+        vp = g2o.VertexPointXYZ()
+        vp.set_id(i)
+        vp.set_marginalized(True)
+        vp.set_estimate([1, 2, 44] + np.random.randn(3))
+        optimizer.add_vertex(vp)
+
+        # edge = g2o.EdgeProjectXYZ2UV()
+        edge = g2o.EdgeSE3ProjectXYZ()
+        edge.set_parameter_id(0, 0)
+        edge.set_vertex(0, vp)
+        edge.set_vertex(1, vertex_pose)
+        edge.set_measurement(np.random.randn(2))
+        edge.set_information(np.identity(2))
+        edge.set_robust_kernel(g2o.RobustKernelHuber())
+        optimizer.add_edge(edge)
+        edges.append(edge)
+
+    print(vertex_pose.estimate().matrix())
+    optimizer.initialize_optimization()
+    optimizer.optimize(10)
+    print(vertex_pose.estimate().matrix())
+    print(edges[0].cam_project(np.array([1, 66, 3])))
+
+    # for e in edges:
+    #     print(e.measurement())
+    #     e.compute_error()
+    #     print(e.chi2())
+
+
     # points = triangulation(kp1, kp2, matches, R, t, camera_matrix)
 
-
 if __name__ == "__main__":
+    np.random.seed(228)
     main()
