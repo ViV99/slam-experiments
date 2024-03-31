@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging as logger
 from typing import Sequence, Optional
 from enum import Enum
+from copy import deepcopy
 
 import cv2
 import g2o
@@ -184,8 +185,8 @@ class Frontend:
 
     __slots__ = (
         "_status", "_current_frame", "_last_frame", "_camera", "_map", "_backend", "_viewer", "_relative_motion",
-        "_tracking_inliers", "_feature_detector", "_feature_matcher", "n_features", "n_features_init",
-        "n_features_tracking", "n_features_tracking_for_keyframe", "feature_radius"
+        "_tracking_inliers", "_feature_detector", "_feature_matcher", "_n_features", "_n_features_init",
+        "_n_features_tracking", "_n_features_tracking_for_keyframe", "_feature_radius"
     )
 
     _status: Frontend.Status
@@ -200,11 +201,11 @@ class Frontend:
     _feature_detector: FeatureDetector
     _feature_matcher: FeatureMatcher
 
-    n_features: int
-    n_features_init: int
-    n_features_tracking: int
-    n_features_tracking_for_keyframe: int
-    feature_radius: int
+    _n_features: int
+    _n_features_init: int
+    _n_features_tracking: int
+    _n_features_tracking_for_keyframe: int
+    _feature_radius: int
 
     def __init__(
             self,
@@ -218,11 +219,11 @@ class Frontend:
         self._feature_detector = feature_detector
         self._feature_matcher = feature_matcher
         self._viewer = viewer
-        self.n_features = n_features
-        self.n_features_init = n_features_init
-        self.n_features_tracking = 50
-        self.n_features_tracking_for_keyframe = 80
-        self.feature_radius = feature_radius
+        self._n_features = n_features
+        self._n_features_init = n_features_init
+        self._n_features_tracking = 50
+        self._n_features_tracking_for_keyframe = 80
+        self._feature_radius = feature_radius
         self._current_frame = None
         self._last_frame = None
 
@@ -253,7 +254,7 @@ class Frontend:
         self._track_current_frame()
         self._tracking_inliers = self._estimate_current_pose()
 
-        if self._tracking_inliers > self.n_features_tracking:
+        if self._tracking_inliers > self._n_features_tracking:
             self._status = Frontend.Status.TRACKING
         else:
             self._status = Frontend.Status.LOST
@@ -277,7 +278,7 @@ class Frontend:
             descriptors_last.append(feature.descriptor)
             pt = np.array(feature.position.pt)
             if feature.map_point:  # can use more accurate pixel coordinates
-                point_pixel = self._camera.world_to_pixel(feature.map_point.pos, self._current_frame.pose)
+                point_pixel = self._camera.world_to_pixel(feature.map_point.position, self._current_frame.pose)
                 keypoints_last.append(pt)
                 keypoints_cur.append(point_pixel)
             else:
@@ -286,8 +287,8 @@ class Frontend:
 
             mask = cv2.rectangle(
                 mask,
-                keypoints_cur[-1] - np.array([self.feature_radius, self.feature_radius]),
-                keypoints_cur[-1] + np.array([self.feature_radius, self.feature_radius]),
+                keypoints_cur[-1] - np.array([self._feature_radius, self._feature_radius]),
+                keypoints_cur[-1] + np.array([self._feature_radius, self._feature_radius]),
                 255,
                 cv2.FILLED
             )
@@ -330,7 +331,7 @@ class Frontend:
                 vertex_map_point = g2o.VertexPointXYZ()
                 vertex_map_point.set_id(index)
                 vertex_map_point.set_marginalized(True)
-                vertex_map_point.set_estimate(feature.map_point.pos)
+                vertex_map_point.set_estimate(feature.map_point.position)
                 optimizer.add_vertex(vertex_map_point)
 
                 edge = g2o.EdgeSE3ProjectXYZ()
@@ -379,7 +380,11 @@ class Frontend:
         return len(features) - cnt_outliers
 
     def _insert_keyframe(self):
-        pass
+        if self._tracking_inliers >= self._n_features_tracking_for_keyframe:
+            return False
+
+        self._current_frame.make_keyframe()
+        self._map.insert_keyframe(self._current_frame)
 
     def _detect_features(self) -> int:
         mask = np.full(self._current_frame.img.shape[:2], fill_value=255, dtype=np.uint8)
@@ -387,8 +392,8 @@ class Frontend:
             pt = np.array(feature.position.pt)
             mask = cv2.rectangle(
                 mask,
-                pt - np.array([self.feature_radius, self.feature_radius]),
-                pt + np.array([self.feature_radius, self.feature_radius]),
+                pt - np.array([self._feature_radius, self._feature_radius]),
+                pt + np.array([self._feature_radius, self._feature_radius]),
                 0,
                 cv2.FILLED
             )
@@ -408,7 +413,6 @@ class Frontend:
         for feature in self._current_frame.features:
             point_camera = self._camera.pixel_to_camera(np.array(feature.position.pt))
             triangulation()
-
 
     def _triangulate_new_points(self) -> int:
         pass
@@ -459,48 +463,40 @@ class MapPoint:
     _factory_id: np.uint64 = 0
 
     __slots__ = (
-        "id", "pos", "is_outlier", "observed_times", "pos_mutex", "obs_mutex", "observations"
+        "id", "position", "is_outlier", "_pos_mutex", "_obs_mutex", "observations"
     )
 
     id: np.uint64
-    pos: np.ndarray
+    position: np.ndarray
     is_outlier: bool
-    observed_times: int
-    pos_mutex: Lock
-    obs_mutex: Lock
+    _pos_mutex: Lock
+    _obs_mutex: Lock
     observations: set[Feature]
 
     def __init__(self, id: np.uint64 = 0, position: np.ndarray = np.zeros((3,))):
         self.id = id
-        self.pos = position
+        self.position = position
         self.is_outlier = False
-        self.observed_times = 0
-        self.pos_mutex = Lock()
-        self.obs_mutex = Lock()
+        self._pos_mutex = Lock()
+        self._obs_mutex = Lock()
         self.observations = set()
 
-    def get_pos(self) -> np.ndarray:
-        with self.pos_mutex:
-            return self.pos.copy()
-
-    def set_pos(self, pos: np.ndarray):
-        with self.pos_mutex:
-            self.pos = pos
+    def set_position(self, position: np.ndarray):
+        with self._pos_mutex:
+            self.position = position
 
     def add_observation(self, feature: Feature):
-        with self.obs_mutex:
+        with self._obs_mutex:
             self.observations.add(feature)
-            self.observed_times += 1
 
     def remove_observation(self, feature: Feature):
-        with self.obs_mutex:
+        with self._obs_mutex:
             if feature in self.observations:
                 self.observations.remove(feature)
                 feature.map_point = None
-                self.observed_times -= 1
 
     def get_observations(self):
-        with self.obs_mutex:
+        with self._obs_mutex:
             return self.observations
 
     @staticmethod
@@ -537,15 +533,11 @@ class Frame:
         self.img = img
         self.features = []
 
-    def get_pose(self) -> SE3:
-        with self.pose_mutex:
-            return self.pose
-
     def set_pose(self, pose: SE3):
-        with self.pose_mutex:
-            self.pose = pose
+        # with self.pose_mutex:
+        self.pose = pose
 
-    def set_keyframe(self):
+    def make_keyframe(self):
         self.is_keyframe = True
         self.keyframe_id = Frame._keyframe_factory_id
         Frame._keyframe_factory_id += 1
@@ -576,7 +568,7 @@ class Map:
         self._data_mutex = Lock()
         self._current_frame = None
 
-    def insert_keyframe(self, frame: Frame):  # TODO: check diff with c++ implementation
+    def insert_keyframe(self, frame: Frame):
         self._current_frame = frame
         self._keyframes[frame.keyframe_id] = frame
         self._active_keyframes[frame.keyframe_id] = frame
@@ -590,7 +582,7 @@ class Map:
 
     def get_all_keyframes(self) -> dict[np.uint64, Frame]:
         with self._data_mutex:
-            return self._keyframes
+            return deepcopy(self._keyframes)
 
     def get_all_map_points(self) -> dict[np.uint64, MapPoint]:
         with self._data_mutex:
@@ -607,7 +599,7 @@ class Map:
     def clean_map(self):
         cnt_removed = 0
         for l_id in list(self._active_landmarks.keys()):
-            if self._active_landmarks[l_id].observed_times == 0:
+            if len(self._active_landmarks[l_id].observations) == 0:
                 self._active_landmarks.pop(l_id)
                 cnt_removed += 1
         logger.info("Removed %s active landmarks", cnt_removed)
