@@ -37,7 +37,8 @@ class BruteForceFeatureMatcher(FeatureMatcher):
         self, source_descriptors: np.ndarray, query_descriptors: np.ndarray, dist_threshold: Optional[float] = None
     ) -> Sequence[DMatch]:
         matches = self.bf.match(query_descriptors, source_descriptors)
-        min_dist = min(matches, key=attrgetter("distance")).distance
-        if dist_threshold:
+
+        if dist_threshold and len(matches) != 0:
+            min_dist = min(matches, key=attrgetter("distance")).distance
             return [m for m in matches if m.distance < max(2 * min_dist, dist_threshold)]
         return matches
