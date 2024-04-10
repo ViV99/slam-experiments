@@ -1,8 +1,10 @@
 import os
 import time
 import yaml
+import logging as logger
 from pathlib import Path
 
+import cv2
 import pandas as pd
 
 from slam import OrbSLAM
@@ -14,51 +16,49 @@ def main(settings_path: Path, path_to_image_folder: Path, path_to_times: Path):
         settings = yaml.safe_load(f)
 
     image_paths, timestamps = load_images(path_to_image_folder, path_to_times)
-    num_images = len(image_paths)
 
-    camera = Camera()
-    slam = OrbSLAM()
-    slam.set_use_viewer(True)
-    slam.initialize()
+    camera = Camera(*settings["intrinsics"])
+    slam = OrbSLAM(camera)
+    slam.start()
 
-    times_track = [0 for _ in range(num_images)]
-    print('-----')
-    print('Start processing sequence ...')
-    print('Images in the sequence: {0}'.format(num_images))
+    tracking_times = []
 
-    for idx in range(num_images):
-        image = cv2.imread(image_filenames[idx], cv2.IMREAD_UNCHANGED)
+    logger.info("Start processing sequence ..."
+                f"Images in the sequence: {len(image_paths)}")
+
+    for idx in range(len(image_paths)):
+        image = cv2.imread(str(image_paths[idx]), cv2.IMREAD_UNCHANGED)
         tframe = timestamps[idx]
 
         if image is None:
-            print("failed to load image at {0}".format(image_filenames[idx]))
+            logger.error(f"Failed to load image at {image_paths[idx]}")
             return 1
 
         t1 = time.time()
-        slam.process_image_mono(image, tframe)
+        slam.process(image, tframe)
         t2 = time.time()
 
-        ttrack = t2 - t1
-        times_track[idx] = ttrack
+        tracking_time = t2 - t1
+        tracking_times.append(tracking_time)
 
-        t = 0
-        if idx < num_images - 1:
-            t = timestamps[idx + 1] - tframe
+        delta_frame_time = 0
+        if idx < len(image_paths) - 1:
+            delta_frame_time = timestamps[idx + 1] - tframe
         elif idx > 0:
-            t = tframe - timestamps[idx - 1]
+            delta_frame_time = tframe - timestamps[idx - 1]
 
-        if ttrack < t:
-            time.sleep(t - ttrack)
+        # if tracking_time < delta_frame_time:
+        #     time.sleep(delta_frame_time - tracking_time)
 
-    save_trajectory(slam.get_trajectory_points(), 'trajectory.txt')
+        print(slam.get_last_pose())
 
-    slam.shutdown()
+    slam.stop()
 
-    times_track = sorted(times_track)
-    total_time = sum(times_track)
+    tracking_times = sorted(tracking_times)
+    total_time = sum(tracking_times)
     print('-----')
-    print('median tracking time: {0}'.format(times_track[num_images // 2]))
-    print('mean tracking time: {0}'.format(total_time / num_images))
+    print('median tracking time: {0}'.format(tracking_times[len(image_paths) // 2]))
+    print('mean tracking time: {0}'.format(total_time / len(image_paths)))
 
     return 0
 
@@ -66,10 +66,11 @@ def main(settings_path: Path, path_to_image_folder: Path, path_to_times: Path):
 def load_images(path_to_images: Path, path_to_times: Path) -> tuple[list[Path], list[float]]:
     image_paths = []
     timestamps = []
-    times = pd.read_csv(path_to_times)
-    for idx, row in times.iterrows():
-        timestamps.append(float(row[0]) / 1e9)
-        image_paths.append(path_to_images / row[1])
+    time_dfs = pd.read_csv(path_to_times)
+    for i in range(len(time_dfs)):
+        timestamps.append(float(time_dfs.iloc[i, 0]) / 1e9)
+        image_paths.append(path_to_images / time_dfs.iloc[i, 1])
+
     return image_paths, timestamps
 
 
@@ -93,6 +94,5 @@ def save_trajectory(trajectory, filename):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 5:
-        print('Usage: ./orbslam_mono_euroc path_to_vocabulary path_to_settings path_to_image_folder path_to_times_file')
-    main(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])
+    # print(cv2.imread("data/mav0/cam0/data/1403636579763555584.png"))
+    main(Path("./config/orb.yaml"), Path("./data/mav0/cam0/data"), Path("./data/mav0/cam0/data.csv"))

@@ -168,13 +168,13 @@ class Frame:
     id: np.uint64
     keyframe_id: Optional[np.uint64]
     is_keyframe: bool
-    time_stamp: np.float64
+    time_stamp: float
     pose: SE3  # Tcw
     _mutex: Lock
     img: np.ndarray
     features: list[Feature]
 
-    def __init__(self, id: np.uint64 = 0, time_stamp: np.float64 = 0, pose: SE3 = None, img: np.ndarray = None):
+    def __init__(self, id: np.uint64 = 0, time_stamp: float = 0, pose: SE3 = None, img: np.ndarray = None):
         self.id = id
         self.keyframe_id = None
         self.is_keyframe = False
@@ -205,7 +205,7 @@ class Frame:
             return np.array(descriptors)
 
     @staticmethod
-    def create_frame(img: np.ndarray, timestamp: np.float64) -> Frame:
+    def create_frame(img: np.ndarray, timestamp: float) -> Frame:
         frame = Frame(Frame._factory_id, timestamp, img=img)
         Frame._factory_id += 1
         return frame

@@ -1,6 +1,6 @@
 import g2o
 import numpy as np
-from sophuspy import SO3, SE3
+from jaxlie import SO3, SE3
 
 
 def main():

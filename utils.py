@@ -19,6 +19,8 @@ def pose_estimation_2d2d(
     query_pts = np.array(query_pts)
 
     if camera:
+        print(len(source_frame.features), len(query_frame.features))
+        print(len(source_pts), len(query_pts), len(matches))
         essential_matrix, _ = cv2.findEssentialMat(source_pts, query_pts, cameraMatrix=camera.intrinsics)
         _, R, t, _ = cv2.recoverPose(essential_matrix, source_pts, query_pts, cameraMatrix=camera.intrinsics)
         return SE3.from_rotation_and_translation(SO3.from_matrix(R), t.flatten())

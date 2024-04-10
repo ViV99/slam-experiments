@@ -111,6 +111,7 @@ class Frontend:
         if len(matches) == 0:
             return
 
+        print(self._status)
         self._relative_motion = pose_estimation_2d2d(self._last_frame, self._current_frame, matches, self._camera)
         self._current_frame.pose = self._relative_motion @ self._last_frame.pose
 
@@ -131,8 +132,9 @@ class Frontend:
     def _track(self):
         self._track_current_frame()
         self._tracking_inliers = self._correct_current_pose()
-
+        print(self._tracking_inliers)
         if self._tracking_inliers < self.n_features_tracking_for_keyframe:
+            print("BBBBBBBBBBBBBBBBBBBBBBBBBBBB")
             self._reinitialize_from_keyframe()
 
         if self._viewer:
@@ -147,10 +149,12 @@ class Frontend:
 
         matches = self._match_features()
         if len(matches) == 0:
+            print("AAAAAAAAAAAAAAAAAA")
             self._current_frame.pose = self._relative_motion @ self._last_frame.pose
             self._reinitialize_from_keyframe()
             return
 
+        print(self._status)
         self._relative_motion = pose_estimation_2d2d(self._last_frame, self._current_frame, matches, self._camera)
         self._current_frame.pose = self._relative_motion @ self._last_frame.pose
 
@@ -230,23 +234,70 @@ class Frontend:
 
         logger.info("Detected %s %s features", cnt_detected, "new" if new else "old")
 
+    class EdgeSE3ProjectXYZOnlyPose(g2o.EdgeSE3ProjectXYZOnlyPose):
+        def __init__(self, fx: float, fy: float, cx: float, cy: float, Xw: np.ndarray):
+            super().__init__()
+            self.fx = fx
+            self.fy = fy
+            self.cx = cx
+            self.cy = cy
+            self.Xw = Xw
+
+    class EdgeProjectionPoseOnly(g2o.VariableVectorXEdge):
+        def __init__(self, pos, K):
+            super().__init__()
+            self.set_dimension(2)
+            self.information()
+            self.resize(1)
+            self.set_measurement([0, 0])
+            self.pos3d = pos
+            self.K = K
+
+        def compute_error(self):
+            v = self.vertices()[0]  # Получить вершину VertexPose
+            T = v.estimate()
+            pos_pixel = self.K @ (T * self.pos3d)
+            pos_pixel /= pos_pixel[2]
+            return self.measurement() - pos_pixel[:2]
+
+        def linearize_oplus(self):
+            v = self.vertices()[0]  # Получить вершину VertexPose
+            T = v.estimate()
+            pos_cam = T * self.pos3d
+            fx = self.K[0, 0]
+            fy = self.K[1, 1]
+            X, Y, Z = pos_cam[0], pos_cam[1], pos_cam[2]
+            Zinv = 1.0 / (Z + 1e-18)
+            Zinv2 = Zinv ** 2
+            self.jacobianOplusXi = np.array([
+                [fx * X * Y * Zinv2, -fx - fx * X * X * Zinv2, fx * Y * Zinv, -fx * Zinv, 0, fx * X * Zinv2],
+                [fy + fy * Y * Y * Zinv2, -fy * X * Y * Zinv2, -fy * X * Zinv, 0, -fy * Zinv, fy * Y * Zinv2]
+            ])
+            # self.jacobianOplusXi = np.array([
+            #     -fx * Zinv, 0, fx * X * Zinv2, fx * X * Y * Zinv2,
+            #     -fx - fx * X * X * Zinv2, fx * Y * Zinv,
+            #     0, -fy * Zinv, fy * Y * Zinv2, fy + fy * Y * Y * Zinv2,
+            #     -fy * X * Y * Zinv2, -fy * X * Zinv])
+
     def _correct_current_pose(self) -> int:
         solver = g2o.OptimizationAlgorithmLevenberg(g2o.BlockSolverSE3(g2o.LinearSolverDenseSE3()))
         optimizer = g2o.SparseOptimizer()
         optimizer.set_algorithm(solver)
         optimizer.set_verbose(False)
 
-        cam = g2o.CameraParameters(
-            (self._camera.fx + self._camera.fy) / 2, np.array([self._camera.cx, self._camera.cy]), 0
-        )
-        cam.set_id(0)
-        optimizer.add_parameter(cam)
+        # cam = g2o.CameraParameters(
+        #     (self._camera.fx + self._camera.fy) / 2, np.array([self._camera.cx, self._camera.cy]), 0
+        # )
+        # cam.set_id(0)
+        # optimizer.add_parameter(cam)
 
-        vertex_pose = g2o.VertexSE3Expmap()
+        vertex_pose = g2o.VertexSE3()
         vertex_pose.set_id(0)
-        vertex_pose.set_estimate(
-            g2o.SE3Quat(self._current_frame.pose.rotation().as_matrix(), self._current_frame.pose.translation())
-        )
+        # vertex_pose.set_estimate(
+        #     g2o.SE3Quat(self._current_frame.pose.rotation().as_matrix(), self._current_frame.pose.translation())
+        # )
+        vertex_pose.set_estimate(g2o.Isometry3d(self._current_frame.pose.as_matrix()))
+        vertex_pose.set_fixed(False)
         optimizer.add_vertex(vertex_pose)
 
         index = 1
@@ -255,20 +306,34 @@ class Frontend:
             if feature.map_point:
                 features.append(feature)
 
-                vertex_map_point = g2o.VertexPointXYZ()
-                vertex_map_point.set_id(index)
-                vertex_map_point.set_marginalized(True)
-                vertex_map_point.set_estimate(feature.map_point.position)
-                optimizer.add_vertex(vertex_map_point)
+                # vertex_map_point = g2o.VertexPointXYZ()
+                # vertex_map_point.set_id(index)
+                # vertex_map_point.set_marginalized(True)
+                # vertex_map_point.set_fixed(True)
+                # vertex_map_point.set_estimate(feature.map_point.position)
+                # optimizer.add_vertex(vertex_map_point)
 
-                edge = g2o.EdgeSE3ProjectXYZ()
-                edge.set_parameter_id(0, 0)
-                edge.set_vertex(0, vertex_map_point)
-                edge.set_vertex(1, vertex_pose)
-                edge.set_measurement(feature.position)
+                # edge = g2o.EdgeSE3ProjectXYZOnlyPose()
+                # print(dir(edge))
+                # raise Exception()
+
+                # edge = Frontend.EdgeSE3ProjectXYZOnlyPose(
+                #     self._camera.fx, self._camera.fy, self._camera.cx, self._camera.cy, feature.map_point.position
+                # )
+
+                edge = Frontend.EdgeProjectionPoseOnly(
+                    feature.map_point.position, self._camera.intrinsics
+                )
+
+                # edge.set_parameter_id(0, 0)
+
+                # edge.set_vertex(0, vertex_map_point)
+                edge.set_vertex(0, vertex_pose)
+                edge.set_measurement(np.array(feature.position))
                 edge.set_information(np.identity(2))
                 edge.set_robust_kernel(g2o.RobustKernelHuber())
                 edges.append(edge)
+
                 optimizer.add_edge(edge)
                 index += 1
 
@@ -276,12 +341,15 @@ class Frontend:
         cnt_outliers = 0
         for iteration in range(4):
             cnt_outliers = 0
-            vertex_pose.set_estimate(
-                g2o.SE3Quat(self._current_frame.pose.rotation().as_matrix(), self._current_frame.pose.translation())
-            )
+            # vertex_pose.set_estimate(
+            #     g2o.SE3Quat(self._current_frame.pose.rotation().as_matrix(), self._current_frame.pose.translation())
+            # )
+            vertex_pose.set_estimate(g2o.Isometry3d(self._current_frame.pose.as_matrix()))
             optimizer.initialize_optimization()
             optimizer.optimize(10)
             for i in range(len(edges)):
+                if iteration == 3:
+                    print(edges[i].chi2())
                 if features[i].is_outlier:
                     edges[i].compute_error()
                 if edges[i].chi2() > chi2_threshold:

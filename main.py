@@ -22,7 +22,7 @@ class SLAM:
     def start(self):
         pass
 
-    def process(self, img: np.ndarray, timestamp: np.float64):
+    def process(self, img: np.ndarray, timestamp: float):
         frame = Frame.create_frame(img, timestamp)
         self.frontend.add_frame(frame)
 
