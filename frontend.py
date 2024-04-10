@@ -28,23 +28,24 @@ class Frontend:
         TRACKING = 1
 
     __slots__ = (
-        "_status", "_current_frame", "_last_frame", "_camera", "_backend_queue", "_viewer", "_relative_motion",
-        "_tracking_inliers", "_init_frame_cnt",  "_feature_detector", "_feature_matcher", "n_features",
-        "n_features_init", "n_features_tracking", "n_features_tracking_for_keyframe", "feature_radius",
+        "_status", "_current_frame", "_last_frame", "_camera", "_initial_pose", "_backend_queue", "_viewer",
+        "_relative_motion", "_tracking_inliers", "_init_frame_cnt",  "_feature_detector", "_feature_matcher",
+        "n_features", "n_features_init", "n_features_tracking", "n_features_tracking_for_keyframe", "feature_radius",
         "reprojection_threshold", "last_frame_refresh_rate"
     )
 
     _status: Frontend.Status
-    _current_frame: Optional[Frame]
-    _last_frame: Optional[Frame]
     _camera: Camera
-    _backend_queue: Queue
-    _viewer: Optional[Viewer]
-    _relative_motion: SE3
+    _relative_motion: Optional[SE3]
     _tracking_inliers: int
     _init_frame_cnt: int
     _feature_detector: FeatureDetector
     _feature_matcher: FeatureMatcher
+    _current_frame: Optional[Frame]
+    _last_frame: Optional[Frame]
+    _initial_pose: Optional[SE3]
+    _backend_queue: Optional[Queue]
+    _viewer: Optional[Viewer]
 
     n_features_tracking_for_keyframe: int
     feature_radius: int
@@ -56,6 +57,7 @@ class Frontend:
         feature_detector: FeatureDetector,
         feature_matcher: FeatureMatcher,
         camera: Camera,
+        initial_pose: SE3 = None,
         viewer: Viewer = None,
         backend_queue: Queue = None,
         n_features_tracking_for_keyframe: int = 80,
@@ -65,6 +67,7 @@ class Frontend:
     ):
         self._feature_detector = feature_detector
         self._feature_matcher = feature_matcher
+        self._initial_pose = initial_pose or SE3.identity()
         self._camera = camera
         self._viewer = viewer
         self._backend_queue = backend_queue
@@ -75,6 +78,7 @@ class Frontend:
 
         self._init_frame_cnt = 0
         self._status = Frontend.Status.INITIALIZING
+        self._relative_motion = None
         self._current_frame = None
         self._last_frame = None
 
@@ -93,6 +97,7 @@ class Frontend:
             self._track()
 
         if self._status == Frontend.Status.TRACKING or self._init_frame_cnt > self.last_frame_refresh_rate:
+            print("HUJ")
             self._last_frame = self._current_frame
 
     def _init(self):
@@ -101,19 +106,25 @@ class Frontend:
         """
         self._detect_features(True)
         if self._last_frame is None:
-            self._current_frame.pose = SE3.identity()
+            self._current_frame.set_pose(self._initial_pose)
             self._last_frame = self._current_frame
             return
 
         self._init_frame_cnt += 1
 
         matches = self._match_features()
-        if len(matches) == 0:
+        if len(matches) < 5:
             return
 
-        print(self._status)
-        self._relative_motion = pose_estimation_2d2d(self._last_frame, self._current_frame, matches, self._camera)
+        if self._relative_motion is None:
+            self._relative_motion = pose_estimation_2d2d(self._last_frame, self._current_frame, matches, self._camera)
+
         self._current_frame.pose = self._relative_motion @ self._last_frame.pose
+        print(self._status)
+        self._correct_current_pose()
+        self._relative_motion = self._current_frame.pose @ self._last_frame.pose.inverse()
+        # self._relative_motion = pose_estimation_2d2d(self._last_frame, self._current_frame, matches, self._camera) TODO
+        # self._current_frame.pose = self._relative_motion @ self._last_frame.pose
 
         if self._triangulate_new_points(matches):
             self._status = Frontend.Status.TRACKING
@@ -130,13 +141,14 @@ class Frontend:
                 raise NotImplementedError()
 
     def _track(self):
+        self._current_frame.pose = self._relative_motion @ self._last_frame.pose
         self._track_current_frame()
         self._tracking_inliers = self._correct_current_pose()
         print(self._tracking_inliers)
         if self._tracking_inliers < self.n_features_tracking_for_keyframe:
             print("BBBBBBBBBBBBBBBBBBBBBBBBBBBB")
             self._reinitialize_from_keyframe()
-
+        self._relative_motion = self._current_frame.pose @ self._last_frame.pose.inverse()
         if self._viewer:
             # self._viewer.add_current_frame(self._current_frame)
             raise NotImplementedError()
@@ -148,15 +160,16 @@ class Frontend:
         self._detect_features(False)
 
         matches = self._match_features()
-        if len(matches) == 0:
-            print("AAAAAAAAAAAAAAAAAA")
-            self._current_frame.pose = self._relative_motion @ self._last_frame.pose
+        if len(matches) < 5:
+            print("XXXXXXX: ", self._last_frame.features)
+            print(self._current_frame.features)
+            # self._current_frame.pose = self._relative_motion @ self._last_frame.pose TODO
             self._reinitialize_from_keyframe()
             return
 
         print(self._status)
-        self._relative_motion = pose_estimation_2d2d(self._last_frame, self._current_frame, matches, self._camera)
-        self._current_frame.pose = self._relative_motion @ self._last_frame.pose
+        # self._relative_motion = pose_estimation_2d2d(self._last_frame, self._current_frame, matches, self._camera) TODO
+        # self._current_frame.pose = self._relative_motion @ self._last_frame.pose
 
         for match in matches:
             map_point = self._last_frame.features[match.trainIdx].map_point
@@ -175,14 +188,17 @@ class Frontend:
 
     def _triangulate_new_points(self, matches: Sequence[cv2.DMatch]) -> bool:
         """
-        Create map_points for new features.
+        Create map_points for new features
         :param matches: all feature matches.
         """
         matches = [match for match in matches if self._last_frame.features[match.trainIdx].map_point is None]
         world_points, px_points = triangulation(
             self._last_frame, self._current_frame, matches, self._camera
         )
-        if self._get_reprojection_error(world_points, px_points) < self.reprojection_threshold:
+        print(id(self._last_frame.img), id(self._current_frame.img))
+        error = self._get_reprojection_error(world_points, px_points)
+        print("Repr error: ", error)
+        if error < self.reprojection_threshold:
             for i, p_w in enumerate(world_points):
                 if p_w[2] > 0:
                     map_point = MapPoint.create_map_point(p_w)
@@ -337,7 +353,7 @@ class Frontend:
                 optimizer.add_edge(edge)
                 index += 1
 
-        chi2_threshold = 5.991
+        chi2_threshold = 5.991 ** 2
         cnt_outliers = 0
         for iteration in range(4):
             cnt_outliers = 0
@@ -364,7 +380,9 @@ class Frontend:
 
         logger.info("Outlier/Inlier in pose estimation: %s / %s", cnt_outliers, len(features) - cnt_outliers)
 
+        print(self._current_frame.pose)
         self._current_frame.set_pose(SE3.from_matrix(vertex_pose.estimate().matrix()))
+        print(self._current_frame.pose)
 
         logger.info("Current Pose = %s", self._current_frame.pose)
         for feature in features:

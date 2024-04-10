@@ -19,10 +19,10 @@ class OrbSLAM:
     backend: Optional[Backend]
     message_queue: Optional[Queue]
 
-    def __init__(self, camera: Camera):
+    def __init__(self, camera: Camera, initial_pose: SE3 = None):
         orb_detector = OrbFeatureDetector(n_features=200)
         bf_matcher = BruteForceFeatureMatcher(norm_type=cv2.NORM_HAMMING)
-        self.frontend = Frontend(orb_detector, bf_matcher, camera)
+        self.frontend = Frontend(orb_detector, bf_matcher, camera, initial_pose)
         self.backend = None
         self.backend_thread = Thread(target=self.backend_runner)
         self.message_queue = None
